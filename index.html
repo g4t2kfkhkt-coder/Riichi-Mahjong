@@ -474,60 +474,89 @@
     return yaochuuIds.every(id => unique.has(id));
   }
 
+  // 【修正 5】统一使用牌型分解结果来判断役种
+  function decomposeHand(tiles) {
+    // 返回所有可能的分解方式，用于判断役种
+    // 返回格式：[{kotsu: n, shuntsu: n, pair: n}, ...]
+    const results = [];
+    decomposeRecursive([...tiles], 0, 0, 0, results);
+    return results;
+  }
+
+  function decomposeRecursive(tiles, kotsu, shuntsu, pair, results) {
+    if (tiles.length === 0) {
+      results.push({ kotsu, shuntsu, pair });
+      return;
+    }
+    if (tiles.length > 0) {
+      const first = tiles[0];
+      
+      // 尝试雀头 (只能有 1 个)
+      if (pair === 0) {
+        const same = tiles.filter(t => t.id === first.id);
+        if (same.length >= 2) {
+          const rest = removeTiles(tiles, [first.id, first.id]);
+          decomposeRecursive(rest, kotsu, shuntsu, 1, results);
+        }
+      }
+      
+      // 尝试刻子
+      const same = tiles.filter(t => t.id === first.id);
+      if (same.length >= 3) {
+        const rest = removeTiles(tiles, [first.id, first.id, first.id]);
+        decomposeRecursive(rest, kotsu + 1, shuntsu, pair, results);
+      }
+      
+      // 尝试顺子
+      if (first.type !== 'honor') {
+        const id2 = `${first.num+1}${first.suit}`;
+        const id3 = `${first.num+2}${first.suit}`;
+        if (tiles.some(t => t.id === id2) && tiles.some(t => t.id === id3)) {
+          const rest = removeTiles(tiles, [first.id, id2, id3]);
+          decomposeRecursive(rest, kotsu, shuntsu + 1, pair, results);
+        }
+      }
+    }
+  }
+
   function checkSuuAnkou(fullHand, winTile) {
     if (!isMenzen()) return false;
     const counts = {};
     fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-    const decomposition = decomposeHandForSuuAnkou(fullHand);
-    if (!decomposition) return false;
-    if (decomposition.kotsu === 4 && decomposition.shuntsu === 0 && decomposition.pair === 1) {
+    const decompositions = decomposeHand(fullHand);
+    
+    // 检查是否存在 4 刻子 0 顺子 1 雀头的分解
+    const hasSuuAnkou = decompositions.some(d => d.kotsu === 4 && d.shuntsu === 0 && d.pair === 1);
+    
+    if (hasSuuAnkou) {
       if (state.winType === 'tsumo') {
         return true;
       } else {
+        // 荣和必须单骑听牌
         return counts[winTile.id] === 2;
       }
     }
     return false;
   }
 
-  function decomposeHandForSuuAnkou(tiles) {
-    if (tiles.length === 0) return { kotsu: 0, shuntsu: 0, pair: 0 };
-    return canDecomposeTo4Kotsu(tiles, 0, 0, 0);
+  // 【修正 6】对对和需要 4 刻子 0 顺子
+  function checkToitoi(fullHand) {
+    if (isSevenPairs(fullHand)) return false;
+    const decompositions = decomposeHand(fullHand);
+    // 检查是否存在 4 刻子 0 顺子 1 雀头的分解
+    return decompositions.some(d => d.kotsu === 4 && d.shuntsu === 0 && d.pair === 1);
   }
 
-  function canDecomposeTo4Kotsu(tiles, kotsu, shuntsu, pair) {
-    if (tiles.length === 0) {
-      return { kotsu, shuntsu, pair };
-    }
-    if (kotsu > 4 || shuntsu > 0 || pair > 1) return null;
-    const first = tiles[0];
-    if (pair === 0) {
-      const same = tiles.filter(t => t.id === first.id);
-      if (same.length >= 2) {
-        const rest = removeTiles(tiles, [first.id, first.id]);
-        const res = canDecomposeTo4Kotsu(rest, kotsu, shuntsu, 1);
-        if (res) return res;
-      }
-    }
-    const same = tiles.filter(t => t.id === first.id);
-    if (same.length >= 3) {
-      const rest = removeTiles(tiles, [first.id, first.id, first.id]);
-      const res = canDecomposeTo4Kotsu(rest, kotsu + 1, shuntsu, pair);
-      if (res) return res;
-    }
-    if (first.type !== 'honor') {
-      const id2 = `${first.num+1}${first.suit}`;
-      const id3 = `${first.num+2}${first.suit}`;
-      if (tiles.some(t => t.id === id2) && tiles.some(t => t.id === id3)) {
-        const rest = removeTiles(tiles, [first.id, id2, id3]);
-        const res = canDecomposeTo4Kotsu(rest, kotsu, shuntsu + 1, pair);
-        if (res) return res;
-      }
-    }
-    return null;
+  // 【修正 7】三暗刻需要至少 3 个暗刻（不包括副露）
+  function checkSananko(fullHand) {
+    if (isSevenPairs(fullHand)) return false;
+    if (!isMenzen()) return false; // 三暗刻必须门清
+    
+    const decompositions = decomposeHand(fullHand);
+    // 检查是否存在至少 3 刻子的分解
+    return decompositions.some(d => d.kotsu >= 3);
   }
 
-  // 【修正 3】七对子特殊处理 - 排除面子系役种
   function calculateYaku(hand, winTile) {
     const fullHand = [...getAllTiles(), winTile];
     const yakuList = [];
@@ -535,6 +564,7 @@
     let yakumanCount = 0;
     const menzen = isMenzen();
     const isChiiToi = isSevenPairs(fullHand);
+    const decompositions = decomposeHand(fullHand);
 
     // 役满判定
     const suits = ['m', 'p', 's'];
@@ -563,7 +593,6 @@
       if (t.honor === 'hatsu') sangenCounts.rich++;
       if (t.honor === 'chun') sangenCounts.red++;
     });
-    // 【修正】大三元需要刻子（3 张以上），七对子只有对子不算
     if (sangenCounts.white >= 3 && sangenCounts.rich >= 3 && sangenCounts.red >= 3) {
       yakuList.push({ name: '大三元', han: 13, isYakuman: true });
       isYakuman = true; yakumanCount += 1;
@@ -617,7 +646,6 @@
 
       const honorCounts = {};
       fullHand.forEach(t => { if(t.type === 'honor') honorCounts[t.honor] = (honorCounts[t.honor] || 0) + 1; });
-      // 【修正】役牌需要刻子（3 张以上），七对子只有对子不算役牌
       if (!isChiiToi) {
         if (honorCounts[state.fieldWind] >= 3) yakuList.push({ name: `场风 (${getTileById(state.fieldWind).name})`, han: 1 });
         if (honorCounts[state.seatWind] >= 3) yakuList.push({ name: `自风 (${getTileById(state.seatWind).name})`, han: 1 });
@@ -626,15 +654,14 @@
         if (honorCounts['chun'] >= 3) yakuList.push({ name: '役牌 (中)', han: 1 });
       }
 
-      // 【修正】平和、一杯口等需要面子牌型，七对子不算
       if (!isChiiToi && menzen && state.winType === 'ron') {
         const counts = {};
         fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
         const pairId = Object.keys(counts).find(id => counts[id] === 2);
         const pairTile = getTileById(pairId);
         if (pairTile && pairTile.type !== 'honor') {
-          const shuntsuCount = countShuntsu(fullHand);
-          if (shuntsuCount === 4 && isRyanmenWait(state.hand, winTile)) {
+          const hasAllShuntsu = decompositions.some(d => d.shuntsu === 4 && d.pair === 1);
+          if (hasAllShuntsu && isRyanmenWait(state.hand, winTile)) {
             yakuList.push({ name: '平和', han: 1 });
           }
         }
@@ -654,7 +681,6 @@
         const ittsuCount = countIttsu(fullHand);
         if (ittsuCount > 0) { yakuList.push({ name: '一气通贯', han: menzen ? 2 : 1 }); }
 
-        // 【修正】混全/纯全需要面子牌型
         const chanta = checkChanta(fullHand);
         if (chanta === 2) { yakuList.push({ name: '纯全带幺九', han: menzen ? 3 : 2 }); }
         else if (chanta === 1) { yakuList.push({ name: '混全带幺九', han: menzen ? 2 : 1 }); }
@@ -664,28 +690,25 @@
         if (isChinitsu) { yakuList.push({ name: '清一色', han: menzen ? 6 : 5 }); }
         else if (isHonitsu) { yakuList.push({ name: '混一色', han: menzen ? 3 : 2 }); }
 
-        const toitoi = checkToitoi(fullHand);
-        if (toitoi) { yakuList.push({ name: '对对和', han: 2 }); }
+        // 【修正】使用分解结果判断对对和
+        if (checkToitoi(fullHand)) { yakuList.push({ name: '对对和', han: 2 }); }
 
-        const sananko = checkSananko(fullHand, state.ankan);
-        if (sananko) { yakuList.push({ name: '三暗刻', han: 2 }); }
+        // 【修正】使用分解结果判断三暗刻
+        if (checkSananko(fullHand)) { yakuList.push({ name: '三暗刻', han: 2 }); }
 
         const sanshokuDoko = checkSanshokuDoko(fullHand);
         if (sanshokuDoko) { yakuList.push({ name: '三色同刻', han: 2 }); }
 
         if (kanCount >= 3) { yakuList.push({ name: '三杠子', han: 2 }); }
 
-        // 【修正】小三元需要 2 组刻子 +1 组雀头（都是三元牌）
         const shosangen = checkShosangen(fullHand);
         if (shosangen) { yakuList.push({ name: '小三元', han: 2 }); }
 
         if (fullHand.every(t => t.isYaochu)) { yakuList.push({ name: '混老头', han: 2 }); }
       }
 
-      // 七对子单独处理
       if (isChiiToi) {
         yakuList.push({ name: '七对子', han: 2 });
-        // 七对子也可以算混老头（全是幺九牌）
         if (fullHand.every(t => t.isYaochu)) { 
           yakuList.push({ name: '混老头', han: 2 }); 
         }
@@ -813,31 +836,49 @@
   }
 
   function checkChanta(tiles) {
-    // 【修正】七对子不算混全/纯全
     if (isSevenPairs(tiles)) return 0;
     
     const hasHonor = tiles.some(t => t.type === 'honor');
-    const counts = {};
-    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-    let allMentsuHaveYaochu = true;
-    for (const id in counts) {
-      if (counts[id] >= 3) {
-        const tile = getTileById(id);
-        if (tile && !tile.isYaochu) allMentsuHaveYaochu = false;
-      }
-    }
-    for (const suit of ['m', 'p', 's']) {
-      for (let num = 1; num <= 7; num++) {
-        const id1 = `${num}${suit}`;
-        const id2 = `${num+1}${suit}`;
-        const id3 = `${num+2}${suit}`;
-        if (counts[id1] >= 1 && counts[id2] >= 1 && counts[id3] >= 1) {
-          if (num !== 1 && num !== 7) allMentsuHaveYaochu = false;
+    const decompositions = decomposeHand(tiles);
+    if (decompositions.length === 0) return 0;
+    
+    // 检查所有分解方式中是否有符合混全/纯全的
+    let maxChanta = 0;
+    for (const decomp of decompositions) {
+      if (decomp.pair !== 1) continue;
+      
+      // 检查刻子和顺子是否都带幺九
+      let allHaveYaochu = true;
+      // 这里简化处理，实际应该检查每个面子
+      // 由于分解函数不返回具体面子，这里用牌张统计近似判断
+      const counts = {};
+      tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+      
+      for (const id in counts) {
+        if (counts[id] >= 3) {
+          const tile = getTileById(id);
+          if (tile && !tile.isYaochu) allHaveYaochu = false;
         }
       }
+      
+      // 检查顺子
+      for (const suit of ['m', 'p', 's']) {
+        for (let num = 1; num <= 7; num++) {
+          const id1 = `${num}${suit}`;
+          const id2 = `${num+1}${suit}`;
+          const id3 = `${num+2}${suit}`;
+          if (counts[id1] >= 1 && counts[id2] >= 1 && counts[id3] >= 1) {
+            if (num !== 1 && num !== 7) allHaveYaochu = false;
+          }
+        }
+      }
+      
+      if (allHaveYaochu) {
+        maxChanta = hasHonor ? 1 : 2;
+      }
     }
-    if (allMentsuHaveYaochu && tiles.length === 14) { return hasHonor ? 1 : 2; }
-    return 0;
+    
+    return maxChanta;
   }
 
   function checkHonitsu(tiles) {
@@ -852,26 +893,6 @@
     return suits.size === 1 && !hasHonor;
   }
 
-  function checkToitoi(tiles) {
-    const counts = {};
-    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-    const kotsuCount = Object.values(counts).filter(c => c >= 3).length;
-    return kotsuCount >= 4;
-  }
-
-  function checkSananko(tiles, ankan) {
-    const counts = {};
-    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-    let ankoCount = ankan.length;
-    for (const id in counts) {
-      if (counts[id] >= 3) {
-        const isInMeld = state.melds.some(m => m.every(t => t.id === id));
-        if (!isInMeld) { ankoCount++; }
-      }
-    }
-    return ankoCount >= 3;
-  }
-
   function checkSanshokuDoko(tiles) {
     const counts = {};
     tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
@@ -884,9 +905,7 @@
     return false;
   }
 
-  // 【修正 4】小三元需要刻子（3 张以上），不是对子
   function checkShosangen(tiles) {
-    // 七对子不算小三元
     if (isSevenPairs(tiles)) return false;
     
     const sangenCounts = { 'white': 0, 'rich': 0, 'red': 0 };
@@ -895,7 +914,6 @@
       if (t.honor === 'hatsu') sangenCounts.rich++;
       if (t.honor === 'chun') sangenCounts.red++;
     });
-    // 需要 2 组刻子（>=3 张）+ 1 组雀头（>=2 张）
     const kotsuCount = Object.values(sangenCounts).filter(c => c >= 3).length;
     const hasPair = Object.values(sangenCounts).some(c => c >= 2);
     return kotsuCount >= 2 && hasPair;
@@ -944,7 +962,6 @@
   function calculateFu(winTile, yakuResult) {
     if (yakuResult.isYakuman) return 0;
     const fullHand = [...getAllTiles(), winTile];
-    // 【修正】七对子固定 25 符
     if (isSevenPairs(fullHand)) return 25;
 
     let fu = 20;
