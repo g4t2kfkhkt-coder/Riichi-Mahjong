@@ -897,6 +897,20 @@
     return false;
   }
 
+  // 【补回】三暗刻判定函数
+  function checkSananko(tiles, ankan) {
+    const counts = {};
+    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    let ankoCount = ankan.length;
+    for (const id in counts) {
+      if (counts[id] >= 3) {
+        const isInMeld = state.melds.some(m => m.every(t => t.id === id));
+        if (!isInMeld) { ankoCount++; }
+      }
+    }
+    return ankoCount >= 3;
+  }
+
   function checkSanshokuDoko(tiles) {
     const counts = {};
     tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
