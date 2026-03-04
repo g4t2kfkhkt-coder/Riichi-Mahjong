@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>雀魂规则 - 立直麻将听牌与点数计算器</title>
+  <title>雀魂规则 - 立直麻将听牌与点数计算器 (修正版)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Microsoft YaHei", sans-serif; }
     body { background-color: #f0f0f0; padding: 20px; }
@@ -415,33 +415,42 @@
 
   function isValidMahjongHand(tiles) {
     if (tiles.length !== 14) return false;
+    // 尝试拆解为 4 组 +1 雀头
+    return checkMentsuGeneral(tiles);
+  }
+
+  function checkMentsuGeneral(tiles) {
+    if (tiles.length === 0) return true;
     const sorted = [...tiles].sort((a, b) => {
       if (a.suit !== b.suit) return (a.suit || '').localeCompare(b.suit || '');
       return (a.num || 0) - (b.num || 0);
     });
+    // 尝试找雀头
     for (let i = 0; i < sorted.length - 1; i++) {
       if (sorted[i].id === sorted[i+1].id) {
         const rest = [...sorted.slice(0, i), ...sorted.slice(i+2)];
-        if (checkMentsu(rest)) return true;
+        if (checkMentsuOnly(rest)) return true;
       }
     }
     return false;
   }
 
-  function checkMentsu(tiles) {
+  function checkMentsuOnly(tiles) {
     if (tiles.length === 0) return true;
     const first = tiles[0];
+    // 尝试刻子
     const same = tiles.filter(t => t.id === first.id);
     if (same.length >= 3) {
       const rest = removeTiles(tiles, [first.id, first.id, first.id]);
-      if (checkMentsu(rest)) return true;
+      if (checkMentsuOnly(rest)) return true;
     }
+    // 尝试顺子
     if (first.type !== 'honor') {
       const id2 = `${first.num+1}${first.suit}`;
       const id3 = `${first.num+2}${first.suit}`;
       if (tiles.some(t => t.id === id2) && tiles.some(t => t.id === id3)) {
         const rest = removeTiles(tiles, [first.id, id2, id3]);
-        if (checkMentsu(rest)) return true;
+        if (checkMentsuOnly(rest)) return true;
       }
     }
     return false;
@@ -471,7 +480,85 @@
     return yaochuuIds.every(id => unique.has(id));
   }
 
-  // ====== 修正：四暗刻判断 ======
+  // 【修正 2】彻底重写四暗刻判定逻辑
+  function checkSuuAnkou(fullHand, winTile) {
+    if (!isMenzen()) return false; // 必须门清
+
+    // 1. 统计牌张
+    const counts = {};
+    fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+
+    // 2. 尝试拆解手牌，看是否能组成 4 个刻子/杠子 + 1 个雀头
+    // 我们需要一个专门的分解函数来确认是否存在“顺子”
+    const decomposition = decomposeHandForSuuAnkou(fullHand);
+    
+    if (!decomposition) return false; // 无法胡牌
+
+    // decomposition 返回 { kotsu: number, shuntsu: number, pair: number }
+    if (decomposition.kotsu === 4 && decomposition.shuntsu === 0 && decomposition.pair === 1) {
+      // 结构符合 4 刻子 1 雀头
+      
+      // 3. 判断荣和/自摸
+      if (state.winType === 'tsumo') {
+        return true; // 自摸四暗刻成立
+      } else {
+        // 荣和：必须单骑听牌（即和牌张是雀头）
+        // 判断方法：和牌张在 14 张牌中只出现了 2 次
+        return counts[winTile.id] === 2;
+      }
+    }
+    return false;
+  }
+
+  // 专门用于检查四暗刻的分解函数，优先找刻子
+  function decomposeHandForSuuAnkou(tiles) {
+    if (tiles.length === 0) return { kotsu: 0, shuntsu: 0, pair: 0 };
+    
+    // 由于四暗刻要求严格，我们这里采用回溯法尝试所有分解可能
+    // 只要存在一种分解方式是 4 刻子 1 雀头，就算符合结构要求
+    return canDecomposeTo4Kotsu(tiles, 0, 0, 0);
+  }
+
+  function canDecomposeTo4Kotsu(tiles, kotsu, shuntsu, pair) {
+    if (tiles.length === 0) {
+      return { kotsu, shuntsu, pair };
+    }
+    if (kotsu > 4 || shuntsu > 0 || pair > 1) return null; // 剪枝：四暗刻不允许有顺子，只能有 1 个雀头
+
+    const first = tiles[0];
+    
+    // 尝试雀头 (只能有一次)
+    if (pair === 0) {
+      const same = tiles.filter(t => t.id === first.id);
+      if (same.length >= 2) {
+        const rest = removeTiles(tiles, [first.id, first.id]);
+        const res = canDecomposeTo4Kotsu(rest, kotsu, shuntsu, 1);
+        if (res) return res;
+      }
+    }
+
+    // 尝试刻子
+    const same = tiles.filter(t => t.id === first.id);
+    if (same.length >= 3) {
+      const rest = removeTiles(tiles, [first.id, first.id, first.id]);
+      const res = canDecomposeTo4Kotsu(rest, kotsu + 1, shuntsu, pair);
+      if (res) return res;
+    }
+
+    // 尝试顺子 (如果出现了顺子，对于四暗刻判定来说，这条路就废了，但为了通用性我们保留逻辑，上层会判断 shuntsu===0)
+    if (first.type !== 'honor') {
+      const id2 = `${first.num+1}${first.suit}`;
+      const id3 = `${first.num+2}${first.suit}`;
+      if (tiles.some(t => t.id === id2) && tiles.some(t => t.id === id3)) {
+        const rest = removeTiles(tiles, [first.id, id2, id3]);
+        const res = canDecomposeTo4Kotsu(rest, kotsu, shuntsu + 1, pair);
+        if (res) return res;
+      }
+    }
+
+    return null;
+  }
+
   function calculateYaku(hand, winTile) {
     const fullHand = [...getAllTiles(), winTile];
     const yakuList = [];
@@ -479,6 +566,7 @@
     let yakumanCount = 0;
     const menzen = isMenzen();
 
+    // 1. 九莲宝灯
     const suits = ['m', 'p', 's'];
     for (let suit of suits) {
       const suitTiles = fullHand.filter(t => t.suit === suit);
@@ -494,39 +582,13 @@
       }
     }
 
-    // 修正：四暗刻判断
-    if (menzen) {
-      const counts = {};
-      fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-      
-      // 统计刻子数量（3 张或 4 张）
-      let ankoCount = 0;
-      for (const id in counts) {
-        if (counts[id] === 4) ankoCount++;
-        else if (counts[id] === 3) ankoCount++;
-      }
-      
-      // 四暗刻：4 个暗刻 +1 个雀头
-      if (ankoCount >= 4) {
-        if (state.winType === 'tsumo') {
-          // 自摸：四暗刻成立
-          yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
-          isYakuman = true; yakumanCount += 1;
-        } else if (state.winType === 'ron') {
-          // 荣和：必须检查是否是单骑听牌
-          // 判定方法：荣和的那张牌，在 14 张牌里必须只出现 2 次（作为雀头）
-          // 如果出现 3 次或 4 次，说明荣和的牌组成了刻子/杠子，不算四暗刻
-          const winTileCount = counts[winTile.id];
-          if (winTileCount === 2) {
-             // 荣和的牌是雀头，说明手里已经有 4 个暗刻了，成立
-             yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
-             isYakuman = true; yakumanCount += 1;
-          }
-          // 如果 winTileCount > 2，则不成立四暗刻（可能是三暗刻 + 对对和）
-        }
-      }
+    // 2. 四暗刻 (使用修正后的逻辑)
+    if (checkSuuAnkou(fullHand, winTile)) {
+      yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
+      isYakuman = true; yakumanCount += 1;
     }
 
+    // 3. 大三元
     const sangenCounts = { 'white': 0, 'rich': 0, 'red': 0 };
     fullHand.forEach(t => {
       if (t.honor === 'haku') sangenCounts.white++;
@@ -538,6 +600,7 @@
       isYakuman = true; yakumanCount += 1;
     }
 
+    // 4. 国士无双
     if (isKokushiMusou(fullHand)) {
       const uniqueIds = new Set(fullHand.map(t => t.id));
       if (uniqueIds.size === 14) {
@@ -549,28 +612,33 @@
       }
     }
 
+    // 5. 四杠子
     const kanCount = state.melds.filter(m => m.length === 4).length + state.ankan.length;
     if (kanCount >= 4) {
       yakuList.push({ name: '四杠子', han: 13, isYakuman: true });
       isYakuman = true; yakumanCount += 1;
     }
 
+    // 6. 清老头
     if (fullHand.every(t => t.isYaochu && t.type !== 'honor')) {
       yakuList.push({ name: '清老头', han: 13, isYakuman: true });
       isYakuman = true; yakumanCount += 1;
     }
 
+    // 7. 字一色
     if (fullHand.every(t => t.type === 'honor')) {
       yakuList.push({ name: '字一色', han: 13, isYakuman: true });
       isYakuman = true; yakumanCount += 1;
     }
 
+    // 8. 绿一色
     const greenTiles = ['2s','3s','4s','6s','8s','rich'];
     if (fullHand.every(t => greenTiles.includes(t.id))) {
       yakuList.push({ name: '绿一色', han: 13, isYakuman: true });
       isYakuman = true; yakumanCount += 1;
     }
 
+    // 非役满役种
     if (!isYakuman) {
       if (state.isRiichi && menzen) {
         yakuList.push({ name: '立直', han: 1 });
@@ -859,7 +927,6 @@
     return false;
   }
 
-  // ====== 修正：宝牌计算包含和牌张 ======
   function calculateDoraCount(winTile) {
     let count = 0;
     const indicators = [...state.dora, ...(state.isRiichi ? state.uradora : [])];
@@ -874,14 +941,12 @@
       }
     }).filter(Boolean);
     
-    // 计算手牌和副露中的宝牌
     const fullHandForDora = getAllTiles();
     fullHandForDora.forEach(t => {
       if (t.red) count++;
       if (doraTiles.some(d => d.id === t.id)) count++;
     });
     
-    // 修正：检查和牌张本身是否是宝牌
     if (winTile.red) count++;
     if (doraTiles.some(d => d.id === winTile.id)) count++;
     
@@ -1048,7 +1113,6 @@
 
     waits.forEach(tile => {
       const yakuRes = calculateYaku(state.hand, tile);
-      // 修正：传入和牌张计算宝牌
       const doraCount = calculateDoraCount(tile);
       
       if (yakuRes.yakuList.some(y => y.name === '九莲宝灯')) {
