@@ -225,7 +225,9 @@
     return tiles.length ? tiles.map(t => `<img class="tile-inline" src="${tileToSvg(t)}" alt="${t.name}" title="${t.name}" onerror="this.style.display='none';" />`).join('') : '(无)';
   }
   function getTileById(id) { return allTiles.find(t => t.id === id) || null; }
-  function isMenzen() { return state.melds.length === 0 && state.ankan.length === 0; }
+  
+  // 【修正 1】暗杠也算门清
+  function isMenzen() { return state.melds.length === 0; }
   
   function getTotalTiles() {
     let total = state.hand.length;
@@ -499,32 +501,28 @@
       
       // 统计刻子数量（3 张或 4 张）
       let ankoCount = 0;
-      let pairCount = 0;
       for (const id in counts) {
         if (counts[id] === 4) ankoCount++;
         else if (counts[id] === 3) ankoCount++;
-        else if (counts[id] === 2) pairCount++;
       }
       
       // 四暗刻：4 个暗刻 +1 个雀头
-      // 荣和时：如果听的是雀头（单骑），不算四暗刻（因为荣和的牌是雀头不是刻子）
-      // 自摸时：4 个暗刻成立
       if (ankoCount >= 4) {
         if (state.winType === 'tsumo') {
           // 自摸：四暗刻成立
           yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
           isYakuman = true; yakumanCount += 1;
         } else if (state.winType === 'ron') {
-          // 荣和：检查是否单骑听牌
-          const winTileCount = fullHand.filter(t => t.id === winTile.id).length;
+          // 荣和：必须检查是否是单骑听牌
+          // 判定方法：荣和的那张牌，在 14 张牌里必须只出现 2 次（作为雀头）
+          // 如果出现 3 次或 4 次，说明荣和的牌组成了刻子/杠子，不算四暗刻
+          const winTileCount = counts[winTile.id];
           if (winTileCount === 2) {
-            // 荣和的牌只有 2 张，说明是雀头，不算四暗刻
-            // 但如果是四暗刻单骑（13 张时已有 4 个暗刻，听第 5 个对子），算四暗刻单骑
-            // 简化：荣和时如果有 4 个 3 张以上的组，算四暗刻
-          } else {
-            yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
-            isYakuman = true; yakumanCount += 1;
+             // 荣和的牌是雀头，说明手里已经有 4 个暗刻了，成立
+             yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
+             isYakuman = true; yakumanCount += 1;
           }
+          // 如果 winTileCount > 2，则不成立四暗刻（可能是三暗刻 + 对对和）
         }
       }
     }
