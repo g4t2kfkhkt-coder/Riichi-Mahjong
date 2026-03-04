@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>雀魂规则-立直麻将听牌提示与点数计算器</title>
+  <title>雀魂规则 - 立直麻将听牌与点数计算器 (风牌修正版)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Microsoft YaHei", sans-serif; }
     body { background-color: #f0f0f0; padding: 20px; }
@@ -11,9 +11,10 @@
     h1 { text-align: center; color: #333; margin-bottom: 20px; }
     .section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
     .section-title { font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 2px solid #3498db; }
+    
     .tile-selector { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; margin-bottom: 15px; }
     .tile { width: 60px; height: 85px; border: 2px solid transparent; border-radius: 5px; cursor: pointer; background-color: #f9f9f9;
-      display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; transition: all 0.2s; user-select: none; }
+      display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; transition: all 0.2s; user-select: none; position: relative; }
     .tile:hover { background-color: #e8f4fd; border-color: #3498db; }
     .tile.selected { background-color: #3498db; color: white; border-color: #2980b9; }
     .tile.man { color: #e74c3c; }
@@ -23,53 +24,72 @@
     .tile.red { color: #e74c3c; font-weight: bold; }
     .tile img { width: 52px; height: 72px; object-fit: contain; pointer-events: none; }
     .tile .tile-label { display: none; font-size: 12px; color: #333; margin-top: 4px; text-align: center; }
-    .hand-display, .meld-display { min-height: 100px; border: 1px dashed #ccc; padding: 10px; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+    
+    .hand-display, .meld-display { min-height: 60px; border: 1px dashed #ccc; padding: 10px; margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; background: #fafafa; }
     .tile-inline { width: 32px; height: 44px; object-fit: contain; vertical-align: middle; margin-right: 4px; }
+    
     .btn-group { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
     button { padding: 10px 20px; background-color: #2ecc71; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
     button:hover { background-color: #27ae60; }
     button.danger { background-color: #e74c3c; }
     button.danger:hover { background-color: #c0392b; }
-    .result-section { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 20px; }
-    .result-item { margin-bottom: 15px; padding: 12px; background-color: white; border-left: 4px solid #3498db; border-radius: 0 4px 4px 0; }
-    .result-item h4 { margin-bottom: 8px; color: #2c3e50; }
-    .point-text { font-size: 16px; font-weight: 500; margin: 4px 0; }
-    .yaku-list { color: #666; font-size: 14px; margin-top: 6px; }
+    
+    .result-section { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid #e9ecef; }
+    .result-item { margin-bottom: 15px; padding: 15px; background-color: white; border-left: 5px solid #3498db; border-radius: 0 4px 4px 0; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .result-item.yakuman { border-left-color: #f1c40f; background-color: #fffcf0; }
+    .result-item h4 { margin-bottom: 8px; color: #2c3e50; display: flex; justify-content: space-between; align-items: center; }
+    .yakuman-tag { background: #f1c40f; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+    
+    .point-text { font-size: 16px; font-weight: 500; margin: 4px 0; color: #2c3e50; }
+    .point-value { color: #e74c3c; font-weight: bold; font-size: 18px; }
+    .yaku-list { color: #666; font-size: 14px; margin-top: 6px; line-height: 1.5; }
+    
     .wind-selector { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
     .wind-btn { padding: 8px 15px; background-color: #ecf0f1; border: 1px solid #bdc3c7; border-radius: 5px; cursor: pointer; user-select: none; }
     .wind-btn.active { background-color: #3498db; color: white; border-color: #2980b9; }
+    
     .calc-type { margin: 20px 0; display: flex; gap: 15px; flex-wrap: wrap; align-items: center; }
-    .calc-type label { font-size: 16px; cursor: pointer; }
+    .calc-type label { font-size: 16px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
     .muted { color:#888; font-size: 12px; }
+    
+    .checkbox-group { display: flex; gap: 20px; margin-top: 10px; }
   </style>
 </head>
 
 <body>
 <div class="container">
-  <h1>雀魂规则-立直麻将听牌提示与点数计算器</h1>
+  <h1>雀魂规则 - 听牌与点数计算器</h1>
 
   <!-- 场风与自风选择 -->
   <div class="section">
-    <div class="section-title">场风与自风</div>
-    <div>
-      <label>场风：</label>
-      <div class="wind-selector" id="fieldWind">
-        <div class="wind-btn" data-wind="west">东</div>
-        <div class="wind-btn" data-wind="south">南</div>
-        <div class="wind-btn" data-wind="east">西</div>
-        <div class="wind-btn" data-wind="north">北</div>
+    <div class="section-title">场况设置</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+      <div>
+        <label>场风：</label>
+        <div class="wind-selector" id="fieldWind">
+          <!-- 修正：data-wind 对应文件名 east.svg, west.svg 等 -->
+          <div class="wind-btn active" data-wind="east">东</div>
+          <div class="wind-btn" data-wind="south">南</div>
+          <div class="wind-btn" data-wind="west">西</div>
+          <div class="wind-btn" data-wind="north">北</div>
+        </div>
+      </div>
+      <div>
+        <label>自风：</label>
+        <div class="wind-selector" id="seatWind">
+          <div class="wind-btn active" data-wind="east">东</div>
+          <div class="wind-btn" data-wind="south">南</div>
+          <div class="wind-btn" data-wind="west">西</div>
+          <div class="wind-btn" data-wind="north">北</div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <label style="font-size: 16px; font-weight: bold;">
+          <input type="checkbox" id="isDealer" style="width: 20px; height: 20px;"> 我是庄家 (亲)
+        </label>
       </div>
     </div>
-    <div style="margin-top:10px;">
-      <label>自风：</label>
-      <div class="wind-selector" id="seatWind">
-        <div class="wind-btn" data-wind="west">东</div>
-        <div class="wind-btn" data-wind="south">南</div>
-        <div class="wind-btn" data-wind="east">西</div>
-        <div class="wind-btn" data-wind="north">北</div>
-      </div>
-    </div>
-    <div class="muted">提示：请保证 index.html 与 svg/ 文件夹同级，否则图片路径需要改。</div>
+    <div class="muted" style="margin-top:10px;">提示：请保证 index.html 与 svg/ 文件夹同级。</div>
   </div>
 
   <!-- 和牌类型选择 -->
@@ -84,7 +104,7 @@
 
   <!-- 手牌选择 -->
   <div class="section">
-    <div class="section-title">选择手牌（最多13张）</div>
+    <div class="section-title">选择手牌（最多 13 张）</div>
     <div class="tile-selector" id="handTiles"></div>
     <div class="hand-display" id="handDisplay">已选手牌：</div>
     <div class="btn-group">
@@ -142,58 +162,55 @@
 </div>
 
 <script>
-  // 牌库定义 - 对应SVG文件名
+  // 牌库定义 - 修正风牌 ID 与文件名对应
   const allTiles = [
-    // 万子 0m=红五万
-    {id: '1m', name: '一萬', type: 'man', suit: 'm', num: 1, is幺九: true},
-    {id: '2m', name: '二萬', type: 'man', suit: 'm', num: 2, is幺九: false},
-    {id: '3m', name: '三萬', type: 'man', suit: 'm', num: 3, is幺九: false},
-    {id: '4m', name: '四萬', type: 'man', suit: 'm', num: 4, is幺九: false},
-    {id: '5m', name: '五萬', type: 'man', suit: 'm', num: 5, is幺九: false},
-    {id: '0m', name: '红五萬', type: 'man', suit: 'm', num: 5, is幺九: false, red: true},
-    {id: '6m', name: '六萬', type: 'man', suit: 'm', num: 6, is幺九: false},
-    {id: '7m', name: '七萬', type: 'man', suit: 'm', num: 7, is幺九: false},
-    {id: '8m', name: '八萬', type: 'man', suit: 'm', num: 8, is幺九: false},
-    {id: '9m', name: '九萬', type: 'man', suit: 'm', num: 9, is幺九: true},
-
-    // 筒子 0p=红五筒
-    {id: '1p', name: '一筒', type: 'pin', suit: 'p', num: 1, is幺九: true},
-    {id: '2p', name: '二筒', type: 'pin', suit: 'p', num: 2, is幺九: false},
-    {id: '3p', name: '三筒', type: 'pin', suit: 'p', num: 3, is幺九: false},
-    {id: '4p', name: '四筒', type: 'pin', suit: 'p', num: 4, is幺九: false},
-    {id: '5p', name: '五筒', type: 'pin', suit: 'p', num: 5, is幺九: false},
-    {id: '0p', name: '红五筒', type: 'pin', suit: 'p', num: 5, is幺九: false, red: true},
-    {id: '6p', name: '六筒', type: 'pin', suit: 'p', num: 6, is幺九: false},
-    {id: '7p', name: '七筒', type: 'pin', suit: 'p', num: 7, is幺九: false},
-    {id: '8p', name: '八筒', type: 'pin', suit: 'p', num: 8, is幺九: false},
-    {id: '9p', name: '九筒', type: 'pin', suit: 'p', num: 9, is幺九: true},
-
-    // 索子 0s=红五索
-    {id: '1s', name: '一索', type: 'sou', suit: 's', num: 1, is幺九: true},
-    {id: '2s', name: '二索', type: 'sou', suit: 's', num: 2, is幺九: false},
-    {id: '3s', name: '三索', type: 'sou', suit: 's', num: 3, is幺九: false},
-    {id: '4s', name: '四索', type: 'sou', suit: 's', num: 4, is幺九: false},
-    {id: '5s', name: '五索', type: 'sou', suit: 's', num: 5, is幺九: false},
-    {id: '0s', name: '红五索', type: 'sou', suit: 's', num: 5, is幺九: false, red: true},
-    {id: '6s', name: '六索', type: 'sou', suit: 's', num: 6, is幺九: false},
-    {id: '7s', name: '七索', type: 'sou', suit: 's', num: 7, is幺九: false},
-    {id: '8s', name: '八索', type: 'sou', suit: 's', num: 8, is幺九: false},
-    {id: '9s', name: '九索', type: 'sou', suit: 's', num: 9, is幺九: true},
-
-    // 字牌（注意：你原始命名 west=东 south=南 east=西 north=北）
-    {id: 'west',  name: '東', type: 'honor', honor: 'east',  is风牌: true,  is三元: false, is幺九: true},
-    {id: 'south', name: '南', type: 'honor', honor: 'south', is风牌: true,  is三元: false, is幺九: true},
-    {id: 'east',  name: '西', type: 'honor', honor: 'west',  is风牌: true,  is三元: false, is幺九: true},
-    {id: 'north', name: '北', type: 'honor', honor: 'north', is风牌: true,  is三元: false, is幺九: true},
-    {id: 'white', name: '白', type: 'honor', honor: 'haku',  is风牌: false, is三元: true,  is幺九: true},
-    {id: 'rich',  name: '發', type: 'honor', honor: 'hatsu', is风牌: false, is三元: true,  is幺九: true},
-    {id: 'red',   name: '中', type: 'honor', honor: 'chun',  is风牌: false, is三元: true,  is幺九: true}
+    // 万子
+    {id: '1m', name: '一萬', type: 'man', suit: 'm', num: 1, isYaochu: true},
+    {id: '2m', name: '二萬', type: 'man', suit: 'm', num: 2, isYaochu: false},
+    {id: '3m', name: '三萬', type: 'man', suit: 'm', num: 3, isYaochu: false},
+    {id: '4m', name: '四萬', type: 'man', suit: 'm', num: 4, isYaochu: false},
+    {id: '5m', name: '五萬', type: 'man', suit: 'm', num: 5, isYaochu: false},
+    {id: '0m', name: '红五萬', type: 'man', suit: 'm', num: 5, isYaochu: false, red: true},
+    {id: '6m', name: '六萬', type: 'man', suit: 'm', num: 6, isYaochu: false},
+    {id: '7m', name: '七萬', type: 'man', suit: 'm', num: 7, isYaochu: false},
+    {id: '8m', name: '八萬', type: 'man', suit: 'm', num: 8, isYaochu: false},
+    {id: '9m', name: '九萬', type: 'man', suit: 'm', num: 9, isYaochu: true},
+    // 筒子
+    {id: '1p', name: '一筒', type: 'pin', suit: 'p', num: 1, isYaochu: true},
+    {id: '2p', name: '二筒', type: 'pin', suit: 'p', num: 2, isYaochu: false},
+    {id: '3p', name: '三筒', type: 'pin', suit: 'p', num: 3, isYaochu: false},
+    {id: '4p', name: '四筒', type: 'pin', suit: 'p', num: 4, isYaochu: false},
+    {id: '5p', name: '五筒', type: 'pin', suit: 'p', num: 5, isYaochu: false},
+    {id: '0p', name: '红五筒', type: 'pin', suit: 'p', num: 5, isYaochu: false, red: true},
+    {id: '6p', name: '六筒', type: 'pin', suit: 'p', num: 6, isYaochu: false},
+    {id: '7p', name: '七筒', type: 'pin', suit: 'p', num: 7, isYaochu: false},
+    {id: '8p', name: '八筒', type: 'pin', suit: 'p', num: 8, isYaochu: false},
+    {id: '9p', name: '九筒', type: 'pin', suit: 'p', num: 9, isYaochu: true},
+    // 索子
+    {id: '1s', name: '一索', type: 'sou', suit: 's', num: 1, isYaochu: true},
+    {id: '2s', name: '二索', type: 'sou', suit: 's', num: 2, isYaochu: false},
+    {id: '3s', name: '三索', type: 'sou', suit: 's', num: 3, isYaochu: false},
+    {id: '4s', name: '四索', type: 'sou', suit: 's', num: 4, isYaochu: false},
+    {id: '5s', name: '五索', type: 'sou', suit: 's', num: 5, isYaochu: false},
+    {id: '0s', name: '红五索', type: 'sou', suit: 's', num: 5, isYaochu: false, red: true},
+    {id: '6s', name: '六索', type: 'sou', suit: 's', num: 6, isYaochu: false},
+    {id: '7s', name: '七索', type: 'sou', suit: 's', num: 7, isYaochu: false},
+    {id: '8s', name: '八索', type: 'sou', suit: 's', num: 8, isYaochu: false},
+    {id: '9s', name: '九索', type: 'sou', suit: 's', num: 9, isYaochu: true},
+    // 字牌 (修正：east=东，west=西)
+    {id: 'east',  name: '東', type: 'honor', honor: 'east',  isKaze: true,  isSangen: false, isYaochu: true},
+    {id: 'south', name: '南', type: 'honor', honor: 'south', isKaze: true,  isSangen: false, isYaochu: true},
+    {id: 'west',  name: '西', type: 'honor', honor: 'west',  isKaze: true,  isSangen: false, isYaochu: true},
+    {id: 'north', name: '北', type: 'honor', honor: 'north', isKaze: true,  isSangen: false, isYaochu: true},
+    {id: 'white', name: '白', type: 'honor', honor: 'haku',  isKaze: false, isSangen: true,  isYaochu: true},
+    {id: 'rich',  name: '發', type: 'honor', honor: 'hatsu', isKaze: false, isSangen: true,  isYaochu: true},
+    {id: 'red',   name: '中', type: 'honor', honor: 'chun',  isKaze: false, isSangen: true,  isYaochu: true}
   ];
 
-  // 全局状态
   let state = {
-    fieldWind: 'west', // 东
-    seatWind: 'west',  // 东
+    fieldWind: 'east', // 默认场风东
+    seatWind: 'east',  // 默认自风东
+    isDealer: true,    // 默认庄家
     hand: [],
     melds: [],
     ankan: [],
@@ -203,16 +220,14 @@
     isRiichi: true
   };
 
-  // ✅ 核心修复：图片路径用 ./svg/xxx.svg（GitHub Pages 更稳定）
   function tileToSvg(tile) {
     return `./svg/${encodeURIComponent(tile.id)}.svg`;
   }
 
-  // 行内小牌渲染
   function renderInlineTiles(tiles) {
     return tiles.length
       ? tiles.map(t => `<img class="tile-inline" src="${tileToSvg(t)}" alt="${t.name}" title="${t.name}"
-            onerror="this.style.display='none';console.warn('图片加载失败:', this.src);" />`).join('')
+            onerror="this.style.display='none';" />`).join('')
       : '(无)';
   }
 
@@ -221,85 +236,61 @@
   }
 
   function isMenzen() {
-    return state.melds.length === 0;
+    return state.melds.length === 0 && state.ankan.length === 0;
   }
 
-  // 初始化牌选择器
+  // 初始化
   function initTileSelectors() {
-    const handTiles = document.getElementById('handTiles');
-    const meldTiles = document.getElementById('meldTiles');
-    const ankanTiles = document.getElementById('ankanTiles');
-    const doraTiles = document.getElementById('doraTiles');
-    const uradoraTiles = document.getElementById('uradoraTiles');
+    const containers = ['handTiles', 'meldTiles', 'ankanTiles', 'doraTiles', 'uradoraTiles'];
+    const handlers = [addToHand, selectForMeld, selectForAnkan, addToDora, addToUradora];
 
-    function createTileElements(container, clickHandler) {
+    containers.forEach((id, index) => {
+      const container = document.getElementById(id);
       container.innerHTML = '';
       allTiles.forEach(tile => {
         const tileEl = document.createElement('div');
         tileEl.className = `tile ${tile.type} ${tile.red ? 'red' : ''}`;
         tileEl.dataset.tileId = tile.id;
         tileEl.title = tile.name;
-
-        // ✅ onerror兜底：如果某张 svg 没有，会显示文字
         tileEl.innerHTML = `
           <img src="${tileToSvg(tile)}" alt="${tile.name}"
-               onerror="this.style.display='none'; this.parentElement.querySelector('.tile-label').style.display='block'; console.warn('缺少SVG:', '${tile.id}', this.src);" />
-          <span class="tile-label">${tile.name}<br><span class="muted">(${tile.id})</span></span>
+               onerror="this.style.display='none'; this.parentElement.querySelector('.tile-label').style.display='block';" />
+          <span class="tile-label">${tile.name}</span>
         `;
-        tileEl.addEventListener('click', () => clickHandler(tile));
+        tileEl.addEventListener('click', () => handlers[index](tile));
         container.appendChild(tileEl);
       });
-    }
-
-    createTileElements(handTiles, addToHand);
-    createTileElements(meldTiles, selectForMeld);
-    createTileElements(ankanTiles, selectForAnkan);
-    createTileElements(doraTiles, addToDora);
-    createTileElements(uradoraTiles, addToUradora);
+    });
   }
 
   // 手牌操作
-  let selectedForMeld = [];
-  let selectedForAnkan = null;
-
   function addToHand(tile) {
-    if (state.hand.length >= 13) {
-      alert('手牌最多13张！');
-      return;
-    }
+    if (state.hand.length >= 13) { alert('手牌最多 13 张！'); return; }
     state.hand.push(tile);
     updateHandDisplay();
   }
-
   function updateHandDisplay() {
     document.getElementById('handDisplay').innerHTML = '已选手牌：' + renderInlineTiles(state.hand);
   }
 
   // 副露操作
+  let selectedForMeld = [];
   function selectForMeld(tile) {
-    if (selectedForMeld.length >= 3) {
-      alert('副露每组最多3张！');
-      return;
-    }
+    if (selectedForMeld.length >= 3) { alert('副露每组最多 3 张！'); return; }
     selectedForMeld.push(tile);
     updateMeldArea();
   }
-
   function addMeld() {
-    if (selectedForMeld.length !== 3) {
-      alert('请选择3张牌组成副露！');
-      return;
-    }
+    if (selectedForMeld.length !== 3) { alert('请选择 3 张牌组成副露！'); return; }
     state.melds.push([...selectedForMeld]);
     selectedForMeld = [];
     updateMeldArea();
     if (state.isRiichi) {
-      alert('立直为门清限定！已自动取消立直');
       state.isRiichi = false;
       document.getElementById('riichi').checked = false;
+      alert('立直为门清限定！已自动取消立直');
     }
   }
-
   function updateMeldArea() {
     const display = document.getElementById('meldDisplay');
     const meldsHtml = state.melds.map(m => `[${renderInlineTiles(m)}]`).join(' ') || '(无)';
@@ -308,93 +299,62 @@
   }
 
   // 暗杠操作
+  let selectedForAnkan = null;
   function selectForAnkan(tile) {
     selectedForAnkan = tile;
     const display = document.getElementById('ankanDisplay');
-    display.innerHTML =
-      `<div><b>已选暗杠：</b>${renderInlineTiles(state.ankan) || '(无)'}</div>
-       <div style="margin-top:6px;"><b>当前选择：</b>${renderInlineTiles([tile])}（点击添加暗杠）</div>`;
+    display.innerHTML = `<div><b>已选暗杠：</b>${renderInlineTiles(state.ankan) || '(无)'}</div><div style="margin-top:6px;"><b>当前选择：</b>${renderInlineTiles([tile])}（点击添加）</div>`;
   }
-
   function addAnkan() {
-    if (!selectedForAnkan) {
-      alert('请先选择一张牌作为暗杠！');
-      return;
-    }
+    if (!selectedForAnkan) { alert('请先选择一张牌！'); return; }
     state.ankan.push(selectedForAnkan);
     selectedForAnkan = null;
     updateAnkanDisplay();
   }
-
   function updateAnkanDisplay() {
     document.getElementById('ankanDisplay').innerHTML = `<b>已选暗杠：</b>${renderInlineTiles(state.ankan) || '(无)'}`;
   }
 
-  // 宝牌操作
-  function addToDora(tile) {
-    state.dora.push(tile);
-    updateDoraDisplay();
-  }
-  function updateDoraDisplay() {
-    document.getElementById('doraDisplay').innerHTML = '已选宝牌：' + renderInlineTiles(state.dora);
-  }
+  // 宝牌
+  function addToDora(tile) { state.dora.push(tile); updateDoraDisplay(); }
+  function updateDoraDisplay() { document.getElementById('doraDisplay').innerHTML = '已选宝牌：' + renderInlineTiles(state.dora); }
+  function addToUradora(tile) { state.uradora.push(tile); updateUradoraDisplay(); }
+  function updateUradoraDisplay() { document.getElementById('uradoraDisplay').innerHTML = '已选里宝牌：' + renderInlineTiles(state.uradora); }
 
-  function addToUradora(tile) {
-    state.uradora.push(tile);
-    updateUradoraDisplay();
-  }
-  function updateUradoraDisplay() {
-    document.getElementById('uradoraDisplay').innerHTML = '已选里宝牌：' + renderInlineTiles(state.uradora);
-  }
-
-  // 风选择初始化
+  // 风选择
   function initWindSelectors() {
-    const fieldWind = document.getElementById('fieldWind');
-    const seatWind = document.getElementById('seatWind');
-
     const setWindActive = (container, wind) => {
-      container.querySelectorAll('.wind-btn')
-        .forEach(b => b.classList.toggle('active', b.dataset.wind === wind));
+      container.querySelectorAll('.wind-btn').forEach(b => b.classList.toggle('active', b.dataset.wind === wind));
     };
-
-    fieldWind.addEventListener('click', (e) => {
-      if (e.target.classList.contains('wind-btn')) {
-        state.fieldWind = e.target.dataset.wind;
-        setWindActive(fieldWind, state.fieldWind);
-      }
+    document.getElementById('fieldWind').addEventListener('click', (e) => {
+      if (e.target.classList.contains('wind-btn')) { state.fieldWind = e.target.dataset.wind; setWindActive(e.target.parentElement, state.fieldWind); }
     });
-
-    seatWind.addEventListener('click', (e) => {
-      if (e.target.classList.contains('wind-btn')) {
-        state.seatWind = e.target.dataset.wind;
-        setWindActive(seatWind, state.seatWind);
-      }
+    document.getElementById('seatWind').addEventListener('click', (e) => {
+      if (e.target.classList.contains('wind-btn')) { state.seatWind = e.target.dataset.wind; setWindActive(e.target.parentElement, state.seatWind); }
     });
-
-    setWindActive(fieldWind, 'west');
-    setWindActive(seatWind, 'west');
-  }
-
-  // 和牌类型选择监听
-  function initWinType() {
+    // 初始化默认选中
+    setWindActive(document.getElementById('fieldWind'), 'east');
+    setWindActive(document.getElementById('seatWind'), 'east');
+    
+    document.getElementById('isDealer').addEventListener('change', (e) => state.isDealer = e.target.checked);
+    
     document.querySelectorAll('input[name="winType"]').forEach(radio => {
       radio.addEventListener('change', (e) => state.winType = e.target.value);
     });
     document.getElementById('riichi').addEventListener('change', (e) => {
       state.isRiichi = e.target.checked;
       if (state.isRiichi && !isMenzen()) {
-        alert('立直为门清限定！取消立直或清空副露');
+        alert('立直为门清限定！');
         e.target.checked = false;
         state.isRiichi = false;
       }
     });
   }
 
-  // ====== 听牌判断（简化版：遍历所有牌尝试和牌） ======
+  // ====== 核心逻辑：听牌分析 ======
   function analyzeTenpai() {
-    const allPossibleTiles = allTiles.filter(t => !t.red); // 排除红宝牌作为和牌张
+    const allPossibleTiles = allTiles.filter(t => !t.red);
     const tenpaiTiles = [];
-
     for (const tile of allPossibleTiles) {
       const testHand = [...state.hand, tile];
       if (isValidMahjongHand(testHand) || isSevenPairs(testHand) || isKokushiMusou(testHand)) {
@@ -404,14 +364,12 @@
     return tenpaiTiles.length ? tenpaiTiles : [{name: '无听牌', id: 'none'}];
   }
 
-  // 牌型验证：普通牌型（4面子+1雀头）
   function isValidMahjongHand(tiles) {
     if (tiles.length !== 14) return false;
     const sorted = [...tiles].sort((a, b) => {
       if (a.suit !== b.suit) return (a.suit || '').localeCompare(b.suit || '');
       return (a.num || 0) - (b.num || 0);
     });
-
     for (let i = 0; i < sorted.length - 1; i++) {
       if (sorted[i].id === sorted[i+1].id) {
         const rest = [...sorted.slice(0, i), ...sorted.slice(i+2)];
@@ -424,15 +382,11 @@
   function checkMentsu(tiles) {
     if (tiles.length === 0) return true;
     const first = tiles[0];
-
-    // 刻子
     const same = tiles.filter(t => t.id === first.id);
     if (same.length >= 3) {
       const rest = removeTiles(tiles, [first.id, first.id, first.id]);
       if (checkMentsu(rest)) return true;
     }
-
-    // 顺子（仅数牌）
     if (first.type !== 'honor') {
       const id2 = `${first.num+1}${first.suit}`;
       const id3 = `${first.num+2}${first.suit}`;
@@ -453,7 +407,6 @@
     return arr;
   }
 
-  // 七对子
   function isSevenPairs(tiles) {
     if (tiles.length !== 14) return false;
     const count = {};
@@ -461,29 +414,120 @@
     return Object.values(count).filter(c => c === 2).length === 7;
   }
 
-  // 国士无双（简单判断）
   function isKokushiMusou(tiles) {
     if (tiles.length !== 14) return false;
-    const yaochuuIds = allTiles.filter(t => t.is幺九).map(t => t.id);
+    const yaochuuIds = allTiles.filter(t => t.isYaochu).map(t => t.id);
     const unique = new Set(tiles.map(t => t.id));
     if (unique.size !== 13) return false;
     return yaochuuIds.every(id => unique.has(id));
   }
 
-  // ====== 番/符/点数：这里保留你的结构（简化可用版） ======
-  // 注意：你的原始代码很长且在你粘贴处被截断；
-  // 这里给一个“能跑通 + 能展示”的版本，后续你要更完整再逐项补齐。
+  // ====== 核心逻辑：役种判断 ======
+  function calculateYaku(hand, winTile) {
+    const fullHand = [...hand, winTile];
+    const yakuList = [];
+    let isYakuman = false;
+    let yakumanCount = 0;
 
-  function calculateDora(hand, isUra = false) {
-    const doraIndicators = isUra ? state.uradora : state.dora;
-    if (doraIndicators.length === 0) return 0;
-    let doraCount = 0;
+    const menzen = isMenzen();
 
-    const doraTiles = doraIndicators.map(ind => {
+    // 1. 九莲宝灯
+    const suits = ['m', 'p', 's'];
+    for (let suit of suits) {
+      const suitTiles = fullHand.filter(t => t.suit === suit);
+      if (suitTiles.length === 14) {
+        const counts = {};
+        suitTiles.forEach(t => counts[t.num] = (counts[t.num] || 0) + 1);
+        let isChuren = true;
+        if (counts[1] !== 3 || counts[9] !== 3) isChuren = false;
+        for (let i = 2; i <= 8; i++) {
+          if (counts[i] !== 1) isChuren = false;
+        }
+        if (isChuren && menzen) {
+          yakuList.push({ name: '九莲宝灯', han: 13, isYakuman: true });
+          isYakuman = true;
+          yakumanCount += 1;
+          break; 
+        }
+      }
+    }
+
+    // 2. 四暗刻
+    if (menzen) {
+      const counts = {};
+      fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+      const ankoCount = Object.values(counts).filter(c => c >= 3).length;
+      if (ankoCount === 4) {
+         const pairCount = Object.values(counts).filter(c => c === 2).length;
+         if (pairCount === 1 || (pairCount === 0 && Object.values(counts).some(c => c === 4))) {
+           yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
+           isYakuman = true;
+           yakumanCount += 1;
+         }
+      }
+    }
+
+    // 3. 大三元
+    const sangenCounts = { 'white': 0, 'rich': 0, 'red': 0 };
+    fullHand.forEach(t => {
+      if (t.honor === 'haku') sangenCounts.white++;
+      if (t.honor === 'hatsu') sangenCounts.rich++;
+      if (t.honor === 'chun') sangenCounts.red++;
+    });
+    if (sangenCounts.white >= 3 && sangenCounts.rich >= 3 && sangenCounts.red >= 3) {
+      yakuList.push({ name: '大三元', han: 13, isYakuman: true });
+      isYakuman = true;
+      yakumanCount += 1;
+    }
+
+    // 4. 国士无双
+    if (isKokushiMusou(fullHand)) {
+      const uniqueIds = new Set(fullHand.map(t => t.id));
+      if (uniqueIds.size === 14) {
+         yakuList.push({ name: '国士无双十三面', han: 26, isYakuman: true });
+         isYakuman = true;
+         yakumanCount += 2;
+      } else {
+         yakuList.push({ name: '国士无双', han: 13, isYakuman: true });
+         isYakuman = true;
+         yakumanCount += 1;
+      }
+    }
+
+    // 普通役
+    if (!isYakuman) {
+      if (state.isRiichi && menzen) { yakuList.push({ name: '立直', han: 1 }); }
+      if (state.winType === 'tsumo' && menzen) { yakuList.push({ name: '门清自摸和', han: 1 }); }
+      if (!fullHand.some(t => t.isYaochu)) { yakuList.push({ name: '断幺九', han: 1 }); }
+      
+      // 役牌判断 (场风/自风/三元)
+      const honorCounts = {};
+      fullHand.forEach(t => { if(t.type === 'honor') honorCounts[t.honor] = (honorCounts[t.honor] || 0) + 1; });
+      
+      // 场风
+      if (honorCounts[state.fieldWind] >= 3) yakuList.push({ name: `场风 (${getTileById(state.fieldWind).name})`, han: 1 });
+      // 自风
+      if (honorCounts[state.seatWind] >= 3) yakuList.push({ name: `自风 (${getTileById(state.seatWind).name})`, han: 1 });
+      // 三元
+      if (honorCounts['haku'] >= 3) yakuList.push({ name: '役牌 (白)', han: 1 });
+      if (honorCounts['hatsu'] >= 3) yakuList.push({ name: '役牌 (发)', han: 1 });
+      if (honorCounts['chun'] >= 3) yakuList.push({ name: '役牌 (中)', han: 1 });
+    }
+
+    return { yakuList, isYakuman, yakumanCount };
+  }
+
+  function calculateDoraCount(hand) {
+    let count = 0;
+    const indicators = [...state.dora, ...(state.isRiichi ? state.uradora : [])];
+    
+    // 修正：风牌宝牌顺序 东->南->西->北->东
+    const doraTiles = indicators.map(ind => {
       if (ind.type === 'honor') {
-        const honorOrder = ['west','south','east','north','white','rich','red'];
-        const idx = honorOrder.findIndex(id => id === ind.id);
-        return getTileById(honorOrder[(idx + 1) % 7]);
+        // 修正后的顺序：east, south, west, north, white, rich, red
+        const order = ['east','south','west','north','white','rich','red'];
+        const idx = order.findIndex(id => id === ind.id);
+        return getTileById(order[(idx + 1) % 7]);
       } else {
         const num = ind.num === 9 ? 1 : ind.num + 1;
         return allTiles.find(t => t.suit === ind.suit && t.num === num && !t.red);
@@ -491,64 +535,85 @@
     }).filter(Boolean);
 
     hand.forEach(t => {
-      if (t.red) doraCount += 1;
-      if (doraTiles.some(d => d.id === t.id)) doraCount += 1;
+      if (t.red) count++;
+      if (doraTiles.some(d => d.id === t.id)) count++;
     });
-    return doraCount;
+    return count;
   }
 
-  function calculateHan(winTile) {
-    const hand = [...state.hand, winTile];
-    const hanList = [];
-    let han = 0;
-
-    // 立直
-    if (state.isRiichi && isMenzen()) { hanList.push({name:'立直', han:1}); han += 1; }
-    // 门清自摸
-    if (state.winType === 'tsumo' && isMenzen()) { hanList.push({name:'门清自摸和', han:1}); han += 1; }
-    // 断幺九（简化：手牌不含幺九/字牌）
-    if (!hand.some(t => t.is幺九)) { hanList.push({name:'断幺九', han:1}); han += 1; }
-
-    const doraHan = calculateDora(hand, false) + (state.isRiichi ? calculateDora(hand, true) : 0);
-
-    return { totalHan: han + doraHan, hanList, doraHan, yakuman: null };
-  }
-
-  function calculateFu(winTile, hanResult) {
-    // 简化符：至少20符，七对子25符，门清荣和平和30符（此处仅做演示）
-    const hand = [...state.hand, winTile];
-    if (isSevenPairs(hand)) return 25;
-    let fu = 20;
-    if (state.winType === 'ron' && isMenzen()) fu += 10; // 门清荣和符（简化）
-    // 进10
-    fu = Math.ceil(fu / 10) * 10;
-    return fu;
-  }
-
-  function calcPoints(han, fu) {
-    // 简化点数（演示用）：按基本点 = fu * 2^(han+2) 计算，再自摸/荣和分配
-    // 实际雀魂规则还有满贯/跳满/倍满/三倍满/役满上限，这里先做可跑通版本
-    const base = fu * Math.pow(2, han + 2);
-
-    if (state.winType === 'ron') {
-      return {desc: `荣和：约 ${Math.ceil(base * 4 / 100) * 100} 点`, total: Math.ceil(base * 4 / 100) * 100};
+  // ====== 点数计算 ======
+  function calculatePoints(yakuResult, doraCount) {
+    const isDealer = state.isDealer;
+    const isTsumo = state.winType === 'tsumo';
+    
+    if (yakuResult.isYakuman) {
+      const count = yakuResult.yakumanCount;
+      let base = 32000; 
+      if (isDealer) base = 48000;
+      
+      const total = base * count;
+      
+      if (isTsumo) {
+        if (isDealer) {
+          return { desc: `自摸：${16000 * count} 点 (全员)`, total: total, isYakuman: true };
+        } else {
+          return { desc: `自摸：${8000 * count}/${16000 * count} 点`, total: total, isYakuman: true };
+        }
+      } else {
+        return { desc: `荣和：${total} 点`, total: total, isYakuman: true };
+      }
     } else {
-      // 自摸：非亲/亲家分配差异这里先不细分
-      return {desc: `自摸：约 ${Math.ceil(base * 2 / 100) * 100}/${Math.ceil(base * 2 / 100) * 100} 点`, total: Math.ceil(base * 4 / 100) * 100};
+      // 普通牌型
+      const han = yakuResult.yakuList.reduce((sum, y) => sum + y.han, 0) + doraCount;
+      
+      let fu = 20;
+      if (isTsumo) fu += 2;
+      if (!isMenzen() && state.winType === 'ron') fu += 2;
+      fu = Math.ceil(fu / 10) * 10;
+      if (fu < 20) fu = 20;
+      if (fu === 25 && yakuResult.yakuList.some(y => y.name === '七对子')) fu = 25;
+
+      let desc = "";
+      let finalPoint = 0;
+
+      if (state.winType === 'ron') {
+        const basic = fu * Math.pow(2, han + 2);
+        let ronPoint = Math.ceil(basic * 4 / 100) * 100;
+        
+        if (han >= 5 && han < 6) finalPoint = 12000; 
+        else if (han >= 6 && han < 8) finalPoint = 18000; 
+        else if (han >= 8 && han < 11) finalPoint = 24000; 
+        else if (han >= 11 && han < 13) finalPoint = 36000; 
+        else if (han >= 13) finalPoint = isDealer ? 48000 : 32000; 
+        else finalPoint = ronPoint;
+        
+        desc = `荣和：${finalPoint} 点`;
+        return { desc, total: finalPoint, han, fu };
+      } else {
+        const basic = fu * Math.pow(2, han + 2);
+        let tsumoDealer = Math.ceil(basic * 2 / 100) * 100;
+        let tsumoNonDealer = Math.ceil(basic / 100) * 100;
+        
+        if (han >= 5) {
+           if (isDealer) { desc = `自摸：16000 点 (全员)`; return {desc, total: 48000, han, fu}; }
+           else { desc = `自摸：4000/8000 点`; return {desc, total: 16000, han, fu}; }
+        }
+        
+        if (isDealer) desc = `自摸：${tsumoDealer} 点 (全员)`;
+        else desc = `自摸：${tsumoNonDealer}/${tsumoDealer} 点`;
+        
+        return { desc, total: isDealer ? tsumoDealer*3 : (tsumoNonDealer + tsumoDealer*2), han, fu };
+      }
     }
   }
 
-  // ====== 计算入口 ======
+  // ====== 主计算入口 ======
   function calculate() {
-    if (state.hand.length !== 13) {
-      alert('请先选择13张手牌（听牌计算以13张为准）');
-      return;
-    }
+    if (state.hand.length !== 13) { alert('请选择 13 张手牌'); return; }
 
     const waits = analyzeTenpai();
     const resultSection = document.getElementById('resultSection');
     const resultContent = document.getElementById('resultContent');
-
     resultSection.style.display = 'block';
     resultContent.innerHTML = '';
 
@@ -558,58 +623,60 @@
     }
 
     waits.forEach(tile => {
-      const hanRes = calculateHan(tile);
-      const fu = calculateFu(tile, hanRes);
-      const pts = calcPoints(hanRes.totalHan, fu);
+      const yakuRes = calculateYaku(state.hand, tile);
+      const doraCount = calculateDoraCount([...state.hand, tile]);
+      
+      if (yakuRes.yakuList.some(y => y.name === '九莲宝灯')) {
+        if (waits.length === 9) {
+          yakuRes.yakuList = yakuRes.yakuList.filter(y => y.name !== '九莲宝灯');
+          yakuRes.yakuList.push({ name: '纯正九莲宝灯', han: 26, isYakuman: true });
+          yakuRes.isYakuman = true;
+          yakuRes.yakumanCount = 2;
+        }
+      }
 
+      const pointsRes = calculatePoints(yakuRes, doraCount);
+      
       const yakuText = [
-        ...hanRes.hanList.map(x => `${x.name}（${x.han}翻）`),
-        (hanRes.doraHan ? `宝牌/里宝牌/赤宝牌合计（${hanRes.doraHan}翻）` : '')
+        ...yakuRes.yakuList.map(x => `${x.name}${x.isYakuman ? '' : `(${x.han}翻)`}`),
+        (doraCount > 0 ? `宝牌/里宝牌/赤宝牌 (${doraCount}翻)` : '')
       ].filter(Boolean).join('，');
 
+      const isYakumanClass = pointsRes.isYakuman ? 'yakuman' : '';
+      const fuText = pointsRes.isYakuman ? '' : `；${pointsRes.fu} 符`;
+      const hanText = pointsRes.isYakuman ? '役满' : `${pointsRes.han} 翻`;
+
       resultContent.innerHTML += `
-        <div class="result-item">
-          <h4>和牌张：${tile.name} <span class="muted">(${tile.id})</span></h4>
+        <div class="result-item ${isYakumanClass}">
+          <h4>
+            和牌张：${tile.name} 
+            ${pointsRes.isYakuman ? '<span class="yakuman-tag">役满</span>' : ''}
+          </h4>
           <div class="point-text">听牌：${renderInlineTiles([tile])}</div>
-          <div class="point-text">翻数：${hanRes.totalHan} 翻；符数：${fu} 符</div>
-          <div class="point-text">${pts.desc}</div>
+          <div class="point-text">
+            番数：<span class="point-value">${hanText}</span>${fuText}
+          </div>
+          <div class="point-text" style="font-size: 20px; color: #c0392b; margin-top: 10px;">
+            ${pointsRes.desc}
+          </div>
           <div class="yaku-list">役种：${yakuText || '（无/未判定）'}</div>
         </div>
       `;
     });
   }
 
-  // ====== 清空/绑定事件 ======
   function bindButtons() {
-    document.getElementById('clearHand').addEventListener('click', () => {
-      state.hand = [];
-      updateHandDisplay();
-    });
-
+    document.getElementById('clearHand').addEventListener('click', () => { state.hand = []; updateHandDisplay(); });
     document.getElementById('addMeld').addEventListener('click', addMeld);
-
-    document.getElementById('clearMeld').addEventListener('click', () => {
-      state.melds = [];
-      selectedForMeld = [];
-      updateMeldArea();
-    });
-
+    document.getElementById('clearMeld').addEventListener('click', () => { state.melds = []; selectedForMeld = []; updateMeldArea(); });
     document.getElementById('addAnkan').addEventListener('click', addAnkan);
-
-    document.getElementById('clearAnkan').addEventListener('click', () => {
-      state.ankan = [];
-      selectedForAnkan = null;
-      updateAnkanDisplay();
-    });
-
+    document.getElementById('clearAnkan').addEventListener('click', () => { state.ankan = []; selectedForAnkan = null; updateAnkanDisplay(); });
     document.getElementById('calculate').addEventListener('click', calculate);
   }
 
-  // ====== 初始化 ======
   function init() {
     initTileSelectors();
     initWindSelectors();
-    initWinType();
     bindButtons();
     updateHandDisplay();
     updateMeldArea();
