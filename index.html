@@ -230,10 +230,9 @@
   function getTileById(id) { return allTiles.find(t => t.id === id) || null; }
   function isMenzen() { return state.melds.length === 0 && state.ankan.length === 0; }
   
-  // 修正：副露可以是 3 张或 4 张
   function getTotalTiles() {
     let total = state.hand.length;
-    state.melds.forEach(m => total += m.length); // 3 张或 4 张
+    state.melds.forEach(m => total += m.length);
     total += state.ankan.length * 4;
     return total;
   }
@@ -247,6 +246,49 @@
       indicator.className = 'dealer-indicator non-dealer';
       indicator.textContent = '闲家 (子)';
     }
+  }
+
+  // ====== 副露验证函数 ======
+  function validateMeld(tiles) {
+    if (tiles.length < 3 || tiles.length > 4) {
+      return { valid: false, message: '副露必须是 3 张或 4 张牌' };
+    }
+
+    // 检查是否都是同一种牌（碰/大明杠）
+    const allSame = tiles.every(t => t.id === tiles[0].id);
+    if (allSame) {
+      if (tiles.length === 3) {
+        return { valid: true, type: '碰' };
+      } else if (tiles.length === 4) {
+        return { valid: true, type: '大明杠' };
+      }
+    }
+
+    // 检查是否是吃（同花色连续 3 张）
+    if (tiles.length === 3) {
+      // 必须都是数牌
+      if (tiles.some(t => t.type === 'honor')) {
+        return { valid: false, message: '吃只能是数牌（万/筒/索）' };
+      }
+      // 必须同花色
+      const suits = new Set(tiles.map(t => t.suit));
+      if (suits.size !== 1) {
+        return { valid: false, message: '吃必须是同花色的牌' };
+      }
+      // 检查是否连续
+      const nums = tiles.map(t => t.num).sort((a, b) => a - b);
+      if (nums[0] + 1 === nums[1] && nums[1] + 1 === nums[2]) {
+        return { valid: true, type: '吃' };
+      }
+      return { valid: false, message: '吃必须是连续的 3 张牌（如 234 万）' };
+    }
+
+    // 4 张牌但不是相同的牌
+    if (tiles.length === 4 && !allSame) {
+      return { valid: false, message: '4 张牌的副露只能是大明杠（4 张相同牌）' };
+    }
+
+    return { valid: false, message: '无效的副露牌型' };
   }
 
   function initTileSelectors() {
@@ -276,17 +318,23 @@
 
   let selectedForMeld = [];
   function selectForMeld(tile) {
-    // 修正：允许选择 3 张或 4 张
     if (selectedForMeld.length >= 4) { alert('副露每组最多 4 张！'); return; }
     selectedForMeld.push(tile);
     updateMeldArea();
   }
   function addMeld() {
-    // 修正：允许 3 张或 4 张
     if (selectedForMeld.length !== 3 && selectedForMeld.length !== 4) { 
       alert('请选择 3 张（吃/碰）或 4 张（大明杠）组成副露！'); 
       return; 
     }
+    
+    // 验证副露牌型
+    const validation = validateMeld(selectedForMeld);
+    if (!validation.valid) {
+      alert(`无效的副露：${validation.message}`);
+      return;
+    }
+    
     if (getTotalTiles() + selectedForMeld.length > 13) { alert('添加后总牌数超过 13 张！'); return; }
     state.melds.push([...selectedForMeld]);
     selectedForMeld = [];
@@ -295,7 +343,11 @@
   }
   function updateMeldArea() {
     const display = document.getElementById('meldDisplay');
-    const meldsHtml = state.melds.map(m => `[${renderInlineTiles(m)}] (${m.length}张)`).join(' ') || '(无)';
+    const meldsHtml = state.melds.map(m => {
+      const validation = validateMeld(m);
+      const type = validation.valid ? validation.type : '未知';
+      return `[${renderInlineTiles(m)}] (${type})`;
+    }).join(' ') || '(无)';
     const curHtml = renderInlineTiles(selectedForMeld) || '(无)';
     display.innerHTML = `<div><b>已选副露：</b>${meldsHtml}</div><div style="margin-top:6px;"><b>当前选择：</b>${curHtml}（${selectedForMeld.length}张）</div>`;
   }
