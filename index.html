@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>雀魂规则 - 立直麻将听牌与点数计算器 (完整版)</title>
+  <title>雀魂规则 - 立直麻将听牌与点数计算器 (修正版)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Microsoft YaHei", sans-serif; }
     body { background-color: #f0f0f0; padding: 20px; }
@@ -382,7 +382,7 @@
     return yaochuuIds.every(id => unique.has(id));
   }
 
-  // ====== 役种判断 (完整版) ======
+  // ====== 役种判断 (修正版) ======
   function calculateYaku(hand, winTile) {
     const fullHand = [...hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t]), winTile];
     const yakuList = [];
@@ -390,7 +390,7 @@
     let yakumanCount = 0;
     const menzen = isMenzen();
 
-    // 役满判断
+    // ===== 役满判断 =====
     // 1. 九莲宝灯
     const suits = ['m', 'p', 's'];
     for (let suit of suits) {
@@ -480,7 +480,7 @@
       yakumanCount += 1;
     }
 
-    // 普通役种判断
+    // ===== 普通役种判断 =====
     if (!isYakuman) {
       // 立直相关
       if (state.isRiichi && menzen) {
@@ -511,34 +511,30 @@
         const pairId = Object.keys(counts).find(id => counts[id] === 2);
         const pairTile = getTileById(pairId);
         if (pairTile && pairTile.type !== 'honor') {
-          // 检查是否 4 顺子
-          const shuntsuCount = checkShuntsuCount(fullHand);
-          if (shuntsuCount === 4) {
-            // 检查两面听
-            if (isRyanmenWait(hand, winTile)) {
-              yakuList.push({ name: '平和', han: 1 });
-            }
+          const shuntsuCount = countShuntsu(fullHand);
+          if (shuntsuCount === 4 && isRyanmenWait(hand, winTile)) {
+            yakuList.push({ name: '平和', han: 1 });
           }
         }
       }
 
-      // 一杯口/二杯口
-      const ippei = checkIipeiko(fullHand);
-      if (ippei >= 2 && menzen) {
+      // 一杯口/二杯口 (修正：需要两个相同的顺子)
+      const iipeikoCount = countIipeiko(fullHand);
+      if (iipeikoCount >= 2 && menzen) {
         yakuList.push({ name: '二杯口', han: 3 });
-      } else if (ippei >= 1 && menzen) {
+      } else if (iipeikoCount >= 1 && menzen) {
         yakuList.push({ name: '一杯口', han: 1 });
       }
 
       // 三色同顺
-      const sanshoku = checkSanshokuDoshun(fullHand);
+      const sanshoku = countSanshokuDoshun(fullHand);
       if (sanshoku > 0) {
         yakuList.push({ name: '三色同顺', han: menzen ? 2 : 1 });
       }
 
-      // 一气通贯
-      const ikkitsukan = checkIttsu(fullHand);
-      if (ikkitsukan > 0) {
+      // 一气通贯 (修正：需要 123+456+789 三个顺子)
+      const ittsuCount = countIttsu(fullHand);
+      if (ittsuCount > 0) {
         yakuList.push({ name: '一气通贯', han: menzen ? 2 : 1 });
       }
 
@@ -565,13 +561,13 @@
       }
 
       // 对对和
-      const toitoi = checkToitoi(fullHand, state.melds, state.ankan);
+      const toitoi = checkToitoi(fullHand);
       if (toitoi && !isSevenPairs(fullHand)) {
         yakuList.push({ name: '对对和', han: 2 });
       }
 
       // 三暗刻
-      const sananko = checkSananko(fullHand, state.ankan);
+      const sananko = checkSananko(fullHand);
       if (sananko) {
         yakuList.push({ name: '三暗刻', han: 2 });
       }
@@ -602,10 +598,13 @@
     return { yakuList, isYakuman, yakumanCount };
   }
 
-  // 辅助函数
-  function checkShuntsuCount(tiles) {
+  // ====== 辅助函数 (修正版) ======
+  
+  // 计算顺子数量
+  function countShuntsu(tiles) {
     let count = 0;
-    const temp = [...tiles];
+    const temp = tiles.map(t => ({...t}));
+    
     for (const suit of ['m', 'p', 's']) {
       const suitTiles = temp.filter(t => t.suit === suit).sort((a,b) => a.num - b.num);
       while (suitTiles.length >= 3) {
@@ -625,101 +624,170 @@
     return count;
   }
 
-  function isRyanmenWait(hand, winTile) {
-    // 简化：检查是否能形成两面听
-    const testHand = [...hand, winTile];
-    const counts = {};
-    testHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+  // 一杯口计算 (修正：需要两个相同的顺子)
+  function countIipeiko(tiles) {
+    const shuntsuMap = {};
+    const temp = tiles.map(t => ({...t}));
     
-    // 检查是否有顺子听牌形式
+    for (const suit of ['m', 'p', 's']) {
+      const suitTiles = temp.filter(t => t.suit === suit).sort((a,b) => a.num - b.num);
+      while (suitTiles.length >= 3) {
+        const first = suitTiles[0];
+        const id2 = `${first.num+1}${first.suit}`;
+        const id3 = `${first.num+2}${first.suit}`;
+        const idx2 = suitTiles.findIndex(t => t.id === id2);
+        const idx3 = suitTiles.findIndex(t => t.id === id3);
+        if (idx2 > 0 && idx3 > 0) {
+          const shuntsuKey = `${first.num}${first.suit}`;
+          shuntsuMap[shuntsuKey] = (shuntsuMap[shuntsuKey] || 0) + 1;
+          suitTiles.splice(0, 1);
+          suitTiles.splice(idx2-1, 1);
+          suitTiles.splice(idx3-2, 1);
+        } else break;
+      }
+    }
+    
+    let count = 0;
+    for (const key in shuntsuMap) {
+      count += Math.floor(shuntsuMap[key] / 2);
+    }
+    return count;
+  }
+
+  // 三色同顺计算
+  function countSanshokuDoshun(tiles) {
+    const shuntsuSet = new Set();
+    const temp = tiles.map(t => ({...t}));
+    
+    for (const suit of ['m', 'p', 's']) {
+      const suitTiles = temp.filter(t => t.suit === suit).sort((a,b) => a.num - b.num);
+      const suitShuntsu = [];
+      while (suitTiles.length >= 3) {
+        const first = suitTiles[0];
+        const id2 = `${first.num+1}${first.suit}`;
+        const id3 = `${first.num+2}${first.suit}`;
+        const idx2 = suitTiles.findIndex(t => t.id === id2);
+        const idx3 = suitTiles.findIndex(t => t.id === id3);
+        if (idx2 > 0 && idx3 > 0) {
+          suitShuntsu.push(first.num);
+          suitTiles.splice(0, 1);
+          suitTiles.splice(idx2-1, 1);
+          suitTiles.splice(idx3-2, 1);
+        } else break;
+      }
+      suitShuntsu.forEach(num => shuntsuSet.add(`${num}-${suit}`));
+    }
+    
+    let count = 0;
+    for (let num = 1; num <= 7; num++) {
+      if (shuntsuSet.has(`${num}-m`) && shuntsuSet.has(`${num}-p`) && shuntsuSet.has(`${num}-s`)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // 一气通贯计算 (修正：需要 123+456+789 三个顺子)
+  function countIttsu(tiles) {
+    let count = 0;
+    
+    for (const suit of ['m', 'p', 's']) {
+      const suitTiles = tiles.filter(t => t.suit === suit);
+      const counts = {};
+      suitTiles.forEach(t => counts[t.num] = (counts[t.num] || 0) + 1);
+      
+      // 检查是否有 123, 456, 789 三个顺子
+      const has123 = (counts[1] >= 1 && counts[2] >= 1 && counts[3] >= 1);
+      const has456 = (counts[4] >= 1 && counts[5] >= 1 && counts[6] >= 1);
+      const has789 = (counts[7] >= 1 && counts[8] >= 1 && counts[9] >= 1);
+      
+      if (has123 && has456 && has789) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // 混全/纯全检查
+  function checkChanta(tiles) {
+    const hasHonor = tiles.some(t => t.type === 'honor');
+    const counts = {};
+    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    
+    // 检查所有面子是否都包含幺九牌
+    let allMentsuHaveYaochu = true;
+    
+    // 检查刻子
+    for (const id in counts) {
+      if (counts[id] >= 3) {
+        const tile = getTileById(id);
+        if (tile && !tile.isYaochu) allMentsuHaveYaochu = false;
+      }
+    }
+    
+    // 检查顺子
     for (const suit of ['m', 'p', 's']) {
       for (let num = 1; num <= 7; num++) {
         const id1 = `${num}${suit}`;
         const id2 = `${num+1}${suit}`;
-        if (counts[id1] >= 1 && counts[id2] >= 1) {
-          // 可能是两面听
-          return true;
+        const id3 = `${num+2}${suit}`;
+        if (counts[id1] >= 1 && counts[id2] >= 1 && counts[id3] >= 1) {
+          if (num !== 1 && num !== 7) allMentsuHaveYaochu = false;
         }
       }
     }
-    return false;
-  }
-
-  function checkIipeiko(tiles) {
-    const counts = {};
-    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-    let count = 0;
-    for (const id in counts) {
-      if (counts[id] >= 4) count += 2;
-      else if (counts[id] >= 2) count += 1;
-    }
-    return Math.floor(count / 2);
-  }
-
-  function checkSanshokuDoshun(tiles) {
-    const suits = ['m', 'p', 's'];
-    for (let num = 1; num <= 7; num++) {
-      const ids = [`${num}m`, `${num}p`, `${num}s`];
-      let hasAll = true;
-      for (const id of ids) {
-        if (!tiles.some(t => t.id === id)) hasAll = false;
-      }
-      if (hasAll) return 1;
+    
+    if (allMentsuHaveYaochu && tiles.length === 14) {
+      return hasHonor ? 1 : 2;
     }
     return 0;
   }
 
-  function checkIttsu(tiles) {
-    for (const suit of ['m', 'p', 's']) {
-      const suitTiles = tiles.filter(t => t.suit === suit);
-      const nums = suitTiles.map(t => t.num);
-      if ([1,2,3,4,5,6,7,8,9].every(n => nums.includes(n))) return 1;
-    }
-    return 0;
-  }
-
-  function checkChanta(tiles) {
-    const hasHonor = tiles.some(t => t.type === 'honor');
-    const allYaochuInShuntsu = tiles.every(t => t.isYaochu || t.type === 'honor');
-    if (allYaochuInShuntsu) return hasHonor ? 1 : 2;
-    return 0;
-  }
-
+  // 混一色检查
   function checkHonitsu(tiles) {
     const suits = new Set(tiles.filter(t => t.suit).map(t => t.suit));
     const hasHonor = tiles.some(t => t.type === 'honor');
     return suits.size === 1 && hasHonor;
   }
 
+  // 清一色检查
   function checkChinitsu(tiles) {
     const suits = new Set(tiles.filter(t => t.suit).map(t => t.suit));
     const hasHonor = tiles.some(t => t.type === 'honor');
     return suits.size === 1 && !hasHonor;
   }
 
-  function checkToitoi(tiles, melds, ankan) {
+  // 对对和检查
+  function checkToitoi(tiles) {
     const counts = {};
     tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
     const kotsuCount = Object.values(counts).filter(c => c >= 3).length;
     return kotsuCount >= 4;
   }
 
-  function checkSananko(tiles, ankan) {
+  // 三暗刻检查
+  function checkSananko(tiles) {
     const counts = {};
     tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
     const ankoCount = Object.values(counts).filter(c => c >= 3).length;
     return ankoCount >= 3;
   }
 
+  // 三色同刻检查
   function checkSanshokuDoko(tiles) {
-    const honors = ['white', 'rich', 'red'];
-    let count = 0;
-    for (const h of honors) {
-      if (tiles.filter(t => t.honor === h).length >= 3) count++;
+    const counts = {};
+    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    
+    for (let num = 1; num <= 9; num++) {
+      const mCount = counts[`${num}m`] || 0;
+      const pCount = counts[`${num}p`] || 0;
+      const sCount = counts[`${num}s`] || 0;
+      if (mCount >= 3 && pCount >= 3 && sCount >= 3) return true;
     }
-    return count >= 3;
+    return false;
   }
 
+  // 小三元检查
   function checkShosangen(tiles) {
     const sangenCounts = { 'white': 0, 'rich': 0, 'red': 0 };
     tiles.forEach(t => {
@@ -729,6 +797,24 @@
     });
     const count = Object.values(sangenCounts).filter(c => c >= 2).length;
     return count === 3;
+  }
+
+  // 两面听检查
+  function isRyanmenWait(hand, winTile) {
+    const testHand = [...hand, winTile];
+    const counts = {};
+    testHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    
+    for (const suit of ['m', 'p', 's']) {
+      for (let num = 1; num <= 7; num++) {
+        const id1 = `${num}${suit}`;
+        const id2 = `${num+1}${suit}`;
+        if (counts[id1] >= 1 && counts[id2] >= 1) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   // ====== 宝牌计算 ======
@@ -753,35 +839,30 @@
     return count;
   }
 
-  // ====== 符数计算 (完整版) ======
+  // ====== 符数计算 ======
   function calculateFu(hand, winTile, yakuResult) {
     if (yakuResult.isYakuman) return 0;
     if (isSevenPairs([...hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t]), winTile])) return 25;
 
-    let fu = 20; // 底符
+    let fu = 20;
     const fullHand = [...hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t]), winTile];
     const menzen = isMenzen();
 
-    // 门清荣和 +10 符
     if (menzen && state.winType === 'ron') fu += 10;
-
-    // 自摸 +2 符
     if (state.winType === 'tsumo') fu += 2;
 
-    // 雀头符
     const counts = {};
     fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
     const pairId = Object.keys(counts).find(id => counts[id] === 2);
     if (pairId) {
       const pairTile = getTileById(pairId);
       if (pairTile) {
-        if (pairTile.honor === state.fieldWind && pairTile.honor === state.seatWind) fu += 4; // 连风
+        if (pairTile.honor === state.fieldWind && pairTile.honor === state.seatWind) fu += 4;
         else if (pairTile.honor === state.fieldWind || pairTile.honor === state.seatWind) fu += 2;
         else if (pairTile.isSangen) fu += 2;
       }
     }
 
-    // 刻子/杠子符
     const meldCounts = {};
     fullHand.forEach(t => meldCounts[t.id] = (meldCounts[t.id] || 0) + 1);
     
@@ -791,23 +872,19 @@
       if (!tile) continue;
       
       if (count === 3) {
-        // 刻子
         fu += tile.isYaochu ? 4 : 2;
       } else if (count === 4) {
-        // 杠子
         const isAnkan = state.ankan.some(t => t.id === id);
         fu += tile.isYaochu ? (isAnkan ? 32 : 16) : (isAnkan ? 16 : 8);
       }
     }
 
-    // 听牌符
     if (state.winType === 'ron') {
       if (isKanchanWait(hand, winTile) || isPenchanWait(hand, winTile) || isTankiWait(hand, winTile)) {
         fu += 2;
       }
     }
 
-    // 进位
     fu = Math.ceil(fu / 10) * 10;
     if (fu < 20) fu = 20;
     
@@ -815,7 +892,6 @@
   }
 
   function isKanchanWait(hand, winTile) {
-    // 坎张听 (如 46 听 5)
     const testHand = [...hand, winTile];
     const counts = {};
     testHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
@@ -833,7 +909,6 @@
   }
 
   function isPenchanWait(hand, winTile) {
-    // 边张听 (如 12 听 3 或 78 听 9)
     const testHand = [...hand, winTile];
     const counts = {};
     testHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
@@ -848,7 +923,6 @@
   }
 
   function isTankiWait(hand, winTile) {
-    // 单骑听
     const counts = {};
     hand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
     return counts[winTile.id] === 1;
@@ -870,26 +944,19 @@
         return { desc: `荣和：${total} 点`, total: total };
       }
     } else {
-      // 雀魂点数表
       let points = 0;
       
       if (han >= 13) {
-        // 役满
         points = isDealer ? 48000 : 32000;
       } else if (han >= 11) {
-        // 三倍满
         points = isDealer ? 36000 : 24000;
       } else if (han >= 8) {
-        // 倍满
         points = isDealer ? 24000 : 16000;
       } else if (han >= 6) {
-        // 跳满
         points = isDealer ? 18000 : 12000;
       } else if (han >= 5) {
-        // 满贯
         points = isDealer ? 12000 : 8000;
       } else {
-        // 基本点计算
         const base = fu * Math.pow(2, han + 2);
         if (isTsumo) {
           if (isDealer) {
@@ -945,7 +1012,6 @@
       const yakuRes = calculateYaku(state.hand, tile);
       const doraCount = calculateDoraCount(state.hand);
       
-      // 纯正九莲宝灯
       if (yakuRes.yakuList.some(y => y.name === '九莲宝灯')) {
         if (waits.length === 9) {
           yakuRes.yakuList = yakuRes.yakuList.filter(y => y.name !== '九莲宝灯');
