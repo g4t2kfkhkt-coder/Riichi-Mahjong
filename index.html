@@ -230,11 +230,31 @@
   function getTileById(id) { return allTiles.find(t => t.id === id) || null; }
   function isMenzen() { return state.melds.length === 0 && state.ankan.length === 0; }
   
+  // 修正：牌数计算（用于验证听牌合法性）
+  // 大明杠和暗杠都算 3 张名额（因为岭上摸牌）
   function getTotalTiles() {
     let total = state.hand.length;
-    state.melds.forEach(m => total += m.length);
-    total += state.ankan.length * 4;
+    state.melds.forEach(m => {
+      if (m.length === 4) {
+        total += 3; // 大明杠算 3 张名额
+      } else {
+        total += m.length; // 吃/碰算实际张数
+      }
+    });
+    total += state.ankan.length * 3; // 暗杠算 3 张名额
     return total;
+  }
+
+  // 获取实际牌数（用于役种判断、宝牌计算等）
+  function getAllTiles() {
+    let tiles = [...state.hand];
+    state.melds.forEach(m => {
+      tiles = tiles.concat(m);
+    });
+    state.ankan.forEach(t => {
+      tiles = tiles.concat([t, t, t, t]);
+    });
+    return tiles;
   }
 
   function updateDealerIndicator() {
@@ -248,13 +268,24 @@
     }
   }
 
-  // ====== 副露验证函数 ======
+  // 检查每种牌是否超过 4 张
+  function checkTileCount(tiles) {
+    const counts = {};
+    tiles.forEach(t => {
+      counts[t.id] = (counts[t.id] || 0) + 1;
+      if (counts[t.id] > 4) {
+        return { valid: false, message: `${t.name} 超过 4 张！` };
+      }
+    });
+    return { valid: true };
+  }
+
+  // 副露验证函数
   function validateMeld(tiles) {
     if (tiles.length < 3 || tiles.length > 4) {
       return { valid: false, message: '副露必须是 3 张或 4 张牌' };
     }
 
-    // 检查是否都是同一种牌（碰/大明杠）
     const allSame = tiles.every(t => t.id === tiles[0].id);
     if (allSame) {
       if (tiles.length === 3) {
@@ -264,18 +295,14 @@
       }
     }
 
-    // 检查是否是吃（同花色连续 3 张）
     if (tiles.length === 3) {
-      // 必须都是数牌
       if (tiles.some(t => t.type === 'honor')) {
         return { valid: false, message: '吃只能是数牌（万/筒/索）' };
       }
-      // 必须同花色
       const suits = new Set(tiles.map(t => t.suit));
       if (suits.size !== 1) {
         return { valid: false, message: '吃必须是同花色的牌' };
       }
-      // 检查是否连续
       const nums = tiles.map(t => t.num).sort((a, b) => a - b);
       if (nums[0] + 1 === nums[1] && nums[1] + 1 === nums[2]) {
         return { valid: true, type: '吃' };
@@ -283,7 +310,6 @@
       return { valid: false, message: '吃必须是连续的 3 张牌（如 234 万）' };
     }
 
-    // 4 张牌但不是相同的牌
     if (tiles.length === 4 && !allSame) {
       return { valid: false, message: '4 张牌的副露只能是大明杠（4 张相同牌）' };
     }
@@ -310,7 +336,11 @@
   }
 
   function addToHand(tile) {
-    if (getTotalTiles() >= 13) { alert('总牌数（手牌 + 副露）不能超过 13 张！'); return; }
+    const allTiles = getAllTiles();
+    allTiles.push(tile);
+    const check = checkTileCount(allTiles);
+    if (!check.valid) { alert(check.message); return; }
+    if (getTotalTiles() >= 13) { alert('总牌数不能超过 13 张！'); return; }
     state.hand.push(tile);
     updateHandDisplay();
   }
@@ -328,14 +358,23 @@
       return; 
     }
     
-    // 验证副露牌型
     const validation = validateMeld(selectedForMeld);
     if (!validation.valid) {
       alert(`无效的副露：${validation.message}`);
       return;
     }
     
-    if (getTotalTiles() + selectedForMeld.length > 13) { alert('添加后总牌数超过 13 张！'); return; }
+    // 检查牌数是否超过 4 张
+    const allTiles = getAllTiles();
+    const newTiles = allTiles.concat(selectedForMeld);
+    const check = checkTileCount(newTiles);
+    if (!check.valid) { alert(check.message); return; }
+    
+    if (getTotalTiles() + (selectedForMeld.length === 4 ? 3 : selectedForMeld.length) > 13) { 
+      alert('添加后总牌数超过 13 张！'); 
+      return; 
+    }
+    
     state.melds.push([...selectedForMeld]);
     selectedForMeld = [];
     updateMeldArea();
@@ -360,7 +399,14 @@
   }
   function addAnkan() {
     if (!selectedForAnkan) { alert('请先选择一张牌！'); return; }
-    if (getTotalTiles() + 4 > 13) { alert('添加后总牌数超过 13 张！'); return; }
+    
+    // 检查牌数是否超过 4 张
+    const allTiles = getAllTiles();
+    const newTiles = allTiles.concat([selectedForAnkan, selectedForAnkan, selectedForAnkan, selectedForAnkan]);
+    const check = checkTileCount(newTiles);
+    if (!check.valid) { alert(check.message); return; }
+    
+    if (getTotalTiles() + 3 > 13) { alert('添加后总牌数超过 13 张！'); return; }
     state.ankan.push(selectedForAnkan);
     selectedForAnkan = null;
     updateAnkanDisplay();
@@ -410,7 +456,7 @@
     const allPossibleTiles = allTiles.filter(t => !t.red);
     const tenpaiTiles = [];
     for (const tile of allPossibleTiles) {
-      const testHand = [...state.hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t]), tile];
+      const testHand = [...getAllTiles(), tile];
       if (isValidMahjongHand(testHand) || isSevenPairs(testHand) || isKokushiMusou(testHand)) {
         tenpaiTiles.push(tile);
       }
@@ -477,7 +523,7 @@
   }
 
   function calculateYaku(hand, winTile) {
-    const fullHand = [...hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t]), winTile];
+    const fullHand = [...getAllTiles(), winTile];
     const yakuList = [];
     let isYakuman = false;
     let yakumanCount = 0;
@@ -591,7 +637,7 @@
         const pairTile = getTileById(pairId);
         if (pairTile && pairTile.type !== 'honor') {
           const shuntsuCount = countShuntsu(fullHand);
-          if (shuntsuCount === 4 && isRyanmenWait(hand, winTile)) {
+          if (shuntsuCount === 4 && isRyanmenWait(state.hand, winTile)) {
             yakuList.push({ name: '平和', han: 1 });
           }
         }
@@ -893,7 +939,7 @@
     return false;
   }
 
-  function calculateDoraCount(hand) {
+  function calculateDoraCount() {
     let count = 0;
     const indicators = [...state.dora, ...(state.isRiichi ? state.uradora : [])];
     const doraTiles = indicators.map(ind => {
@@ -906,7 +952,7 @@
         return allTiles.find(t => t.suit === ind.suit && t.num === num && !t.red);
       }
     }).filter(Boolean);
-    const fullHandForDora = [...hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t])];
+    const fullHandForDora = getAllTiles();
     fullHandForDora.forEach(t => {
       if (t.red) count++;
       if (doraTiles.some(d => d.id === t.id)) count++;
@@ -914,12 +960,12 @@
     return count;
   }
 
-  function calculateFu(hand, winTile, yakuResult) {
+  function calculateFu(winTile, yakuResult) {
     if (yakuResult.isYakuman) return 0;
-    if (isSevenPairs([...hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t]), winTile])) return 25;
+    const fullHand = [...getAllTiles(), winTile];
+    if (isSevenPairs(fullHand)) return 25;
 
     let fu = 20;
-    const fullHand = [...hand, ...state.melds.flat(), ...state.ankan.flatMap(t => [t,t,t,t]), winTile];
     const menzen = isMenzen();
 
     if (menzen && state.winType === 'ron') fu += 10;
@@ -937,6 +983,7 @@
       }
     }
 
+    // 符数计算：大明杠按 4 张牌计算
     const meldCounts = {};
     fullHand.forEach(t => meldCounts[t.id] = (meldCounts[t.id] || 0) + 1);
     
@@ -946,6 +993,7 @@
       if (!tile) continue;
       
       const isMeld = state.melds.some(m => m.every(t => t.id === id));
+      const isAnkan = state.ankan.some(t => t.id === id);
       
       if (count === 3) {
         if (isMeld) {
@@ -954,7 +1002,6 @@
           fu += tile.isYaochu ? 8 : 4;
         }
       } else if (count === 4) {
-        const isAnkan = state.ankan.some(t => t.id === id);
         if (isAnkan) {
           fu += tile.isYaochu ? 32 : 16;
         } else {
@@ -964,7 +1011,7 @@
     }
 
     if (state.winType === 'ron') {
-      if (isKanchanWait(hand, winTile) || isPenchanWait(hand, winTile) || isTankiWait(hand, winTile)) {
+      if (isKanchanWait(state.hand, winTile) || isPenchanWait(state.hand, winTile) || isTankiWait(state.hand, winTile)) {
         fu += 2;
       }
     }
@@ -1094,7 +1141,7 @@
   function calculate() {
     const totalTiles = getTotalTiles();
     if (totalTiles !== 13) { 
-      alert(`当前总牌数为 ${totalTiles} 张，请调整手牌或副露，使总数为 13 张。`); 
+      alert(`当前总牌数为 ${totalTiles} 张，请调整手牌或副露，使总数为 13 张。\n\n注意：大明杠和暗杠都算 3 张名额（因为岭上摸牌）`); 
       return; 
     }
 
@@ -1111,7 +1158,7 @@
 
     waits.forEach(tile => {
       const yakuRes = calculateYaku(state.hand, tile);
-      const doraCount = calculateDoraCount(state.hand);
+      const doraCount = calculateDoraCount();
       
       if (yakuRes.yakuList.some(y => y.name === '九莲宝灯')) {
         if (waits.length === 9) {
@@ -1123,7 +1170,7 @@
       }
 
       const han = yakuRes.isYakuman ? 0 : yakuRes.yakuList.reduce((sum, y) => sum + y.han, 0) + doraCount;
-      const fu = calculateFu(state.hand, tile, yakuRes);
+      const fu = calculateFu(tile, yakuRes);
       const pointsRes = calculatePoints(han, fu, yakuRes.isYakuman, yakuRes.yakumanCount);
       
       const yakuText = [
