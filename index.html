@@ -628,15 +628,9 @@
 
       // 【修正】平和、一杯口等需要面子牌型，七对子不算
       if (!isChiiToi && menzen && state.winType === 'ron') {
-        const counts = {};
-        fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-        const pairId = Object.keys(counts).find(id => counts[id] === 2);
-        const pairTile = getTileById(pairId);
-        if (pairTile && pairTile.type !== 'honor') {
-          const shuntsuCount = countShuntsu(fullHand);
-          if (shuntsuCount === 4 && isRyanmenWait(state.hand, winTile)) {
+        // 平和判定逻辑重构
+        if (checkPinfu(fullHand, winTile)) {
             yakuList.push({ name: '平和', han: 1 });
-          }
         }
       }
 
@@ -693,6 +687,147 @@
     }
 
     return { yakuList, isYakuman, yakumanCount };
+  }
+
+  // 【新增】平和判定专用函数
+  function checkPinfu(tiles, winTile) {
+    // 1. 雀头不能是役牌
+    const counts = {};
+    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    
+    // 2. 尝试所有可能的雀头
+    const ids = Object.keys(counts);
+    for (let i = 0; i < ids.length; i++) {
+      const pairId = ids[i];
+      if (counts[pairId] >= 2) {
+        const pairTile = getTileById(pairId);
+        // 雀头不能是役牌
+        if (pairTile.honor === state.fieldWind || pairTile.honor === state.seatWind || pairTile.isSangen) {
+          continue;
+        }
+
+        // 假设 pairId 是雀头，减去 2 张
+        let tempTiles = [...tiles];
+        // 移除两张雀头
+        let removed = 0;
+        for(let k=0; k<tempTiles.length; k++) {
+            if(tempTiles[k].id === pairId && removed < 2) {
+                tempTiles[k] = null; // 标记移除
+                removed++;
+            }
+        }
+        tempTiles = tempTiles.filter(t => t !== null);
+
+        // 3. 检查剩余 12 张牌是否全是顺子
+        if (canDecomposeTo4Shuntsu(tempTiles)) {
+            // 4. 检查是否两面听
+            if (isTwoSidedWait(tiles, winTile, pairId)) {
+                return true;
+            }
+        }
+      }
+    }
+    return false;
+  }
+
+  function canDecomposeTo4Shuntsu(tiles) {
+    if (tiles.length === 0) return true;
+    // 贪心算法：从最小的牌开始，优先组成顺子
+    const sorted = [...tiles].sort((a, b) => {
+      if (a.suit !== b.suit) return (a.suit || '').localeCompare(b.suit || '');
+      return (a.num || 0) - (b.num || 0);
+    });
+    
+    const first = sorted[0];
+    if (first.type === 'honor') return false; // 字牌不能组成顺子
+    
+    const id2 = `${first.num+1}${first.suit}`;
+    const id3 = `${first.num+2}${first.suit}`;
+    
+    const idx2 = sorted.findIndex(t => t.id === id2);
+    const idx3 = sorted.findIndex(t => t.id === id3);
+    
+    if (idx2 > 0 && idx3 > 0) {
+      // 移除这三张
+      const rest = [...sorted];
+      rest.splice(0, 1); // 移除 first
+      // 注意移除后索引变化，从大到小移除
+      rest.splice(idx3 > idx2 ? idx3-1 : idx3, 1); 
+      rest.splice(idx2 > 0 ? idx2-1 : idx2, 1);
+      
+      return canDecomposeTo4Shuntsu(rest);
+    }
+    return false;
+  }
+
+  function isTwoSidedWait(tiles, winTile, pairId) {
+    // 检查 winTile 是否构成了两面搭子
+    // 两面听定义：手牌中有 (winTile-1, winTile-2) 或 (winTile+1, winTile+2)
+    // 且这两张牌没有被雀头占用（如果雀头和搭子有重叠）
+    
+    // 简化逻辑：在确定雀头和 4 顺子分解后，检查听牌形态
+    // 这里我们用一个更直接的方法：
+    // 尝试移除 winTile，看剩下的牌里是否有 (winTile-1, winTile-2) 或者 (winTile+1, winTile+2)
+    // 且这两张牌能组成顺子的一部分
+    
+    if (winTile.type === 'honor') return false;
+    
+    const tempTiles = tiles.filter(t => t.id !== winTile.id); // 移除和牌张
+    // 注意：如果有多个 winTile，只移除一个
+    const idx = tiles.findIndex(t => t.id === winTile.id);
+    if (idx > -1) {
+        tempTiles.splice(idx, 1);
+    } else {
+        // 如果 tiles 里找不到 winTile (理论上不可能，因为 tiles 是 fullHand)
+        return false;
+    }
+
+    // 检查是否有 (num-1, num-2)
+    const id1 = `${winTile.num-1}${winTile.suit}`;
+    const id2 = `${winTile.num-2}${winTile.suit}`;
+    if (hasPairInTiles(tempTiles, id1, id2, pairId)) return true;
+
+    // 检查是否有 (num+1, num+2)
+    const id3 = `${winTile.num+1}${winTile.suit}`;
+    const id4 = `${winTile.num+2}${winTile.suit}`;
+    if (hasPairInTiles(tempTiles, id3, id4, pairId)) return true;
+
+    return false;
+  }
+
+  function hasPairInTiles(tiles, id1, id2, pairId) {
+    // 检查 tiles 中是否同时存在 id1 和 id2
+    // 并且要考虑到 pairId 可能占用了其中一张
+    let count1 = 0;
+    let count2 = 0;
+    
+    tiles.forEach(t => {
+        if (t.id === id1) count1++;
+        if (t.id === id2) count2++;
+    });
+    
+    // 如果 id1 或 id2 等于 pairId，说明雀头占用了
+    // 但我们在 checkPinfu 里已经移除了雀头传入 tempTiles 了吗？
+    // 不，这里 tiles 是 fullHand 移除 winTile 后的结果，包含雀头
+    // 所以如果 id1 == pairId，我们需要 count1 >= 3 (2 张雀头 +1 张搭子) 才能算有搭子
+    // 如果 id1 != pairId，count1 >= 1 即可
+    
+    let has1 = false;
+    let has2 = false;
+    
+    if (id1 === pairId) {
+        if (count1 >= 3) has1 = true;
+    } else {
+        if (count1 >= 1) has1 = true;
+    }
+    
+    if (id2 === pairId) {
+        if (count2 >= 3) has2 = true;
+    } else {
+        if (count2 >= 1) has2 = true;
+    }
+    
+    return has1 && has2;
   }
 
   function countShuntsu(tiles) {
@@ -940,6 +1075,7 @@
     return kotsuCount >= 2 && hasPair;
   }
 
+  // 旧的两面听检查，已废弃，由 checkPinfu 内部处理
   function isRyanmenWait(hand, winTile) {
     const testHand = [...hand, winTile];
     const counts = {};
