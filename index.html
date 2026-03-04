@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日本立直麻将听牌提示与点数计算器</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        body {
+            background-color: #f0f0f0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #3498db;
+        }
+        .tile-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .tile {
+            width: 60px;
+            height: 85px;
+            border: 2px solid transparent;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #f9f9f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .tile:hover {
+            background-color: #e8f4fd;
+            border-color: #3498db;
+        }
+        .tile.selected {
+            background-color: #3498db;
+            color: white;
+            border-color: #2980b9;
+        }
+        .tile.man { color: #e74c3c; }
+        .tile.pin { color: #d35400; }
+        .tile.sou { color: #27ae60; }
+        .tile. honor { color: #8e44ad; }
+        .tile.red { color: #e74c3c; font-weight: bold; }
+        .hand-display, .meld-display {
+            min-height: 100px;
+            border: 1px dashed #ccc;
+            padding: 10px;
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #27ae60;
+        }
+        button.danger {
+            background-color: #e74c3c;
+        }
+        button.danger:hover {
+            background-color: #c0392b;
+        }
+        .result-section {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .result-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: white;
+            border-left: 4px solid #3498db;
+        }
+        .wind-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .wind-btn {
+            padding: 8px 15px;
+            background-color: #ecf0f1;
+            border: 1px solid #bdc3c7;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .wind-btn.active {
+            background-color: #3498db;
+            color: white;
+            border-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>日本立直麻将听牌提示与点数计算器</h1>
+
+        <!-- 场风与自风选择 -->
+        <div class="section">
+            <div class="section-title">场风与自风</div>
+            <div>
+                <label>场风：</label>
+                <div class="wind-selector" id="fieldWind">
+                    <div class="wind-btn" data-wind="east">东</div>
+                    <div class="wind-btn" data-wind="south">南</div>
+                    <div class="wind-btn" data-wind="west">西</div>
+                    <div class="wind-btn" data-wind="north">北</div>
+                </div>
+            </div>
+            <div style="margin-top:10px;">
+                <label>自风：</label>
+                <div class="wind-selector" id="seatWind">
+                    <div class="wind-btn" data-wind="east">东</div>
+                    <div class="wind-btn" data-wind="south">南</div>
+                    <div class="wind-btn" data-wind="west">西</div>
+                    <div class="wind-btn" data-wind="north">北</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 手牌选择 -->
+        <div class="section">
+            <div class="section-title">选择手牌（最多13张）</div>
+            <div class="tile-selector" id="handTiles"></div>
+            <div class="hand-display" id="handDisplay">已选手牌：</div>
+            <div class="btn-group">
+                <button id="clearHand">清空手牌</button>
+            </div>
+        </div>
+
+        <!-- 副露选择 -->
+        <div class="section">
+            <div class="section-title">副露（吃/碰/大明杠）</div>
+            <div class="tile-selector" id="meldTiles"></div>
+            <div class="meld-display" id="meldDisplay">已选副露：</div>
+            <div class="btn-group">
+                <button id="addMeld">添加副露</button>
+                <button id="clearMeld" class="danger">清空副露</button>
+            </div>
+        </div>
+
+        <!-- 暗杠选择 -->
+        <div class="section">
+            <div class="section-title">暗杠</div>
+            <div class="tile-selector" id="ankanTiles"></div>
+            <div class="meld-display" id="ankanDisplay">已选暗杠：</div>
+            <div class="btn-group">
+                <button id="addAnkan">添加暗杠</button>
+                <button id="clearAnkan" class="danger">清空暗杠</button>
+            </div>
+        </div>
+
+        <!-- 宝牌与里宝牌 -->
+        <div class="section">
+            <div class="section-title">宝牌与里宝牌指示牌</div>
+            <div>
+                <label>宝牌指示牌：</label>
+                <div class="tile-selector" id="doraTiles"></div>
+                <div class="hand-display" id="doraDisplay">已选宝牌：</div>
+            </div>
+            <div style="margin-top:15px;">
+                <label>里宝牌指示牌：</label>
+                <div class="tile-selector" id="uradoraTiles"></div>
+                <div class="hand-display" id="uradoraDisplay">已选里宝牌：</div>
+            </div>
+        </div>
+
+        <!-- 计算按钮 -->
+        <div style="text-align:center; margin:30px 0;">
+            <button id="calculate" style="font-size:20px; padding:15px 30px;">计算听牌与点数</button>
+        </div>
+
+        <!-- 结果显示 -->
+        <div class="result-section" id="resultSection" style="display:none;">
+            <div class="section-title">计算结果</div>
+            <div id="resultContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // 所有牌的定义
+        const allTiles = [
+            // 万子
+            {id: 'm1', name: '一萬', type: 'man', suit: 'm', num: 1},
+            {id: 'm2', name: '二萬', type: 'man', suit: 'm', num: 2},
+            {id: 'm3', name: '三萬', type: 'man', suit: 'm', num: 3},
+            {id: 'm4', name: '四萬', type: 'man', suit: 'm', num: 4},
+            {id: 'm5', name: '五萬', type: 'man', suit: 'm', num: 5},
+            {id: 'm5r', name: '红五萬', type: 'man', suit: 'm', num: 5, red: true},
+            {id: 'm6', name: '六萬', type: 'man', suit: 'm', num: 6},
+            {id: 'm7', name: '七萬', type: 'man', suit: 'm', num: 7},
+            {id: 'm8', name: '八萬', type: 'man', suit: 'm', num: 8},
+            {id: 'm9', name: '九萬', type: 'man', suit: 'm', num: 9},
+            // 筒子
+            {id: 'p1', name: '一筒', type: 'pin', suit: 'p', num: 1},
+            {id: 'p2', name: '二筒', type: 'pin', suit: 'p', num: 2},
+            {id: 'p3', name: '三筒', type: 'pin', suit: 'p', num: 3},
+            {id: 'p4', name: '四筒', type: 'pin', suit: 'p', num: 4},
+            {id: 'p5', name: '五筒', type: 'pin', suit: 'p', num: 5},
+            {id: 'p5r', name: '红五筒', type: 'pin', suit: 'p', num: 5, red: true},
+            {id: 'p6', name: '六筒', type: 'pin', suit: 'p', num: 6},
+            {id: 'p7', name: '七筒', type: 'pin', suit: 'p', num: 7},
+            {id: 'p8', name: '八筒', type: 'pin', suit: 'p', num: 8},
+            {id: 'p9', name: '九筒', type: 'pin', suit: 'p', num: 9},
+            // 索子
+            {id: 's1', name: '一索', type: 'sou', suit: 's', num: 1},
+            {id: 's2', name: '二索', type: 'sou', suit: 's', num: 2},
+            {id: 's3', name: '三索', type: 'sou', suit: 's', num: 3},
+            {id: 's4', name: '四索', type: 'sou', suit: 's', num: 4},
+            {id: 's5', name: '五索', type: 'sou', suit: 's', num: 5},
+            {id: 's5r', name: '红五索', type: 'sou', suit: 's', num: 5, red: true},
+            {id: 's6', name: '六索', type: 'sou', suit: 's', num: 6},
+            {id: 's7', name: '七索', type: 'sou', suit: 's', num: 7},
+            {id: 's8', name: '八索', type: 'sou', suit: 's', num: 8},
+            {id: 's9', name: '九索', type: 'sou', suit: 's', num: 9},
+            // 字牌
+            {id: 'east', name: '東', type: 'honor', honor: 'east'},
+            {id: 'south', name: '南', type: 'honor', honor: 'south'},
+            {id: 'west', name: '西', type: 'honor', honor: 'west'},
+            {id: 'north', name: '北', type: 'honor', honor: 'north'},
+            {id: 'haku', name: '白', type: 'honor', honor: 'haku'},
+            {id: 'hatsu', name: '發', type: 'honor', honor: 'hatsu'},
+            {id: 'chun', name: '中', type: 'honor', honor: 'chun'}
+        ];
+
+        // 全局状态
+        let state = {
+            fieldWind: 'east',
+            seatWind: 'east',
+            hand: [],
+            melds: [],
+            ankan: [],
+            dora: [],
+            uradora: []
+        };
+
+        // 初始化牌选择器
+        function initTileSelectors() {
+            const handTiles = document.getElementById('handTiles');
+            const meldTiles = document.getElementById('meldTiles');
+            const ankanTiles = document.getElementById('ankanTiles');
+            const doraTiles = document.getElementById('doraTiles');
+            const uradoraTiles = document.getElementById('uradoraTiles');
+
+            function createTileElements(container, clickHandler) {
+                container.innerHTML = '';
+                allTiles.forEach(tile => {
+                    const tileEl = document.createElement('div');
+                    tileEl.className = `tile ${tile.type} ${tile.red ? 'red' : ''}`;
+                    tileEl.dataset.tileId = tile.id;
+                    tileEl.textContent = tile.name;
+                    tileEl.addEventListener('click', () => clickHandler(tile));
+                    container.appendChild(tileEl);
+                });
+            }
+
+            createTileElements(handTiles, addToHand);
+            createTileElements(meldTiles, selectForMeld);
+            createTileElements(ankanTiles, selectForAnkan);
+            createTileElements(doraTiles, addToDora);
+            createTileElements(uradoraTiles, addToUradora);
+        }
+
+        // 手牌操作
+        function addToHand(tile) {
+            if (state.hand.length >= 13) {
+                alert('手牌最多13张');
+                return;
+            }
+            state.hand.push(tile);
+            updateHandDisplay();
+        }
+
+        function updateHandDisplay() {
+            const display = document.getElementById('handDisplay');
+            display.innerHTML = '已选手牌：' + state.hand.map(t => t.name).join(' ');
+        }
+
+        // 副露操作
+        let selectedForMeld = [];
+        function selectForMeld(tile) {
+            if (selectedForMeld.length >= 3) {
+                alert('副露最多3张');
+                return;
+            }
+            selectedForMeld.push(tile);
+            updateMeldSelection();
+        }
+
+        function updateMeldSelection() {
+            const display = document.getElementById('meldDisplay');
+            display.innerHTML = '当前选择：' + selectedForMeld.map(t => t.name).join(' ');
+        }
+
+        function addMeld() {
+            if (selectedForMeld.length !== 3) {
+                alert('请选择3张牌作为副露');
+                return;
+            }
+            state.melds.push([...selectedForMeld]);
+            selectedForMeld = [];
+            updateMeldDisplay();
+            updateMeldSelection();
+        }
+
+        function updateMeldDisplay() {
+            const display = document.getElementById('meldDisplay');
+            display.innerHTML = '已选副露：' + state.melds.map((meld, i) => 
+                `[${meld.map(t => t.name).join(' ')}]`
+            ).join(' ');
+        }
+
+        // 暗杠操作
+        let selectedForAnkan = null;
+        function selectForAnkan(tile) {
+            selectedForAnkan = tile;
+            document.getElementById('ankanDisplay').innerHTML = `当前选择：${tile.name}（点击添加暗杠）`;
+        }
+
+        function addAnkan() {
+            if (!selectedForAnkan) {
+                alert('请先选择一张牌作为暗杠');
+                return;
+            }
+            state.ankan.push(selectedForAnkan);
+            selectedForAnkan = null;
+            updateAnkanDisplay();
+        }
+
+        function updateAnkanDisplay() {
+            const display = document.getElementById('ankanDisplay');
+            display.innerHTML = '已选暗杠：' + state.ankan.map(t => t.name).join(' ');
+        }
+
+        // 宝牌操作
+        function addToDora(tile) {
+            state.dora.push(tile);
+            updateDoraDisplay();
+        }
+
+        function updateDoraDisplay() {
+            const display = document.getElementById('doraDisplay');
+            display.innerHTML = '已选宝牌：' + state.dora.map(t => t.name).join(' ');
+        }
+
+        function addToUradora(tile) {
+            state.uradora.push(tile);
+            updateUradoraDisplay();
+        }
+
+        function updateUradoraDisplay() {
+            const display = document.getElementById('uradoraDisplay');
+            display.innerHTML = '已选里宝牌：' + state.uradora.map(t => t.name).join(' ');
+        }
+
+        // 风选择
+        function initWindSelectors() {
+            const fieldWind = document.getElementById('fieldWind');
+            const seatWind = document.getElementById('seatWind');
+
+            fieldWind.querySelectorAll('.wind-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    fieldWind.querySelectorAll('.wind-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    state.fieldWind = btn.dataset.wind;
+                });
+            });
+
+            seatWind.querySelectorAll('.wind-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    seatWind.querySelectorAll('.wind-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    state.seatWind = btn.dataset.wind;
+                });
+            });
+
+            // 默认激活东
+            fieldWind.querySelector('[data-wind="east"]').classList.add('active');
+            seatWind.querySelector('[data-wind="east"]').classList.add('active');
+        }
+
+        // 核心计算逻辑（示例）
+        function calculate() {
+            // 这里是核心计算逻辑，需要根据手牌、副露、宝牌等信息：
+            // 1. 分析听牌（如听1、4、7万）
+            // 2. 计算每种和牌方式的符数（自摸/荣和、和牌张等）
+            // 3. 计算番数
+            // 4. 计算点数（庄家/闲家）
+
+            // 示例输出格式
+            const exampleResults = [
+                {
+                    tile: '一萬',
+                    han: 3,
+                    fu: 30,
+                    dealer: {
+                        ron: 5800,
+                        tsumo: { all: 2000 }
+                    },
+                    nonDealer: {
+                        ron: 3900,
+                        tsumo: { dealer: 2000, others: 1000 }
+                    }
+                },
+                {
+                    tile: '四萬',
+                    han: 3,
+                    fu: 30,
+                    dealer: {
+                        ron: 5800,
+                        tsumo: { all: 2000 }
+                    },
+                    nonDealer: {
+                        ron: 3900,
+                        tsumo: { dealer: 2000, others: 1000 }
+                    }
+                },
+                {
+                    tile: '七萬',
+                    han: 3,
+                    fu: 30,
+                    dealer: {
+                        ron: 5800,
+                        tsumo: { all: 2000 }
+                    },
+                    nonDealer: {
+                        ron: 3900,
+                        tsumo: { dealer: 2000, others: 1000 }
+                    }
+                }
+            ];
+
+            displayResults(exampleResults);
+        }
+
+        function displayResults(results) {
+            const resultSection = document.getElementById('resultSection');
+            const resultContent = document.getElementById('resultContent');
+            resultContent.innerHTML = '';
+
+            results.forEach(result => {
+                const resultItem = document.createElement('div');
+                resultItem.className = 'result-item';
+                resultItem.innerHTML = `
+                    <strong>和牌：${result.tile}</strong><br>
+                    番数：${result.han}番<br>
+                    符数：${result.fu}符<br>
+                    <strong>庄家：</strong> ${result.han}番 ${result.fu}符 ${result.dealer.ron}点（荣和） / ${result.dealer.tsumo.all}All（自摸）<br>
+                    <strong>闲家：</strong> ${result.han}番 ${result.fu}符 ${result.nonDealer.ron}点（荣和） / ${result.nonDealer.tsumo.dealer},${result.nonDealer.tsumo.others}（自摸）
+                `;
+                resultContent.appendChild(resultItem);
+            });
+
+            resultSection.style.display = 'block';
+        }
+
+        // 清空操作
+        function clearHand() {
+            state.hand = [];
+            updateHandDisplay();
+        }
+
+        function clearMeld() {
+            state.melds = [];
+            selectedForMeld = [];
+            updateMeldDisplay();
+            updateMeldSelection();
+        }
+
+        function clearAnkan() {
+            state.ankan = [];
+            selectedForAnkan = null;
+            updateAnkanDisplay();
+        }
+
+        // 初始化
+        function init() {
+            initTileSelectors();
+            initWindSelectors();
+
+            // 绑定事件
+            document.getElementById('clearHand').addEventListener('click', clearHand);
+            document.getElementById('addMeld').addEventListener('click', addMeld);
+            document.getElementById('clearMeld').addEventListener('click', clearMeld);
+            document.getElementById('addAnkan').addEventListener('click', addAnkan);
+            document.getElementById('clearAnkan').addEventListener('click', clearAnkan);
+            document.getElementById('calculate').addEventListener('click', calculate);
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
