@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>雀魂规则 - 立直麻将听牌与点数计算器 (点数最终修正)</title>
+  <title>雀魂规则 - 立直麻将听牌与点数计算器</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Microsoft YaHei", sans-serif; }
     body { background-color: #f0f0f0; padding: 20px; }
@@ -51,6 +51,17 @@
     .calc-type { margin: 20px 0; display: flex; gap: 15px; flex-wrap: wrap; align-items: center; }
     .calc-type label { font-size: 16px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
     .muted { color:#888; font-size: 12px; }
+    
+    .dealer-indicator { 
+      display: inline-block; 
+      padding: 4px 12px; 
+      border-radius: 4px; 
+      font-size: 12px; 
+      font-weight: bold;
+      margin-left: 10px;
+    }
+    .dealer-indicator.dealer { background-color: #f1c40f; color: #fff; }
+    .dealer-indicator.non-dealer { background-color: #95a5a6; color: #fff; }
   </style>
 </head>
 
@@ -78,13 +89,10 @@
           <div class="wind-btn" data-wind="west">西</div>
           <div class="wind-btn" data-wind="north">北</div>
         </div>
-      </div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <label style="font-size: 16px; font-weight: bold;">
-          <input type="checkbox" id="isDealer" style="width: 20px; height: 20px;"> 我是庄家 (亲)
-        </label>
+        <div id="dealerIndicator" class="dealer-indicator dealer">庄家 (亲)</div>
       </div>
     </div>
+    <div class="muted" style="margin-top:10px;">提示：自风为东时自动判定为庄家</div>
   </div>
 
   <div class="section">
@@ -197,7 +205,6 @@
   let state = {
     fieldWind: 'east',
     seatWind: 'east',
-    isDealer: false,
     hand: [],
     melds: [],
     ankan: [],
@@ -211,6 +218,11 @@
     chankan: false
   };
 
+  // 根据自风自动判断是否是庄家
+  function isDealer() {
+    return state.seatWind === 'east';
+  }
+
   function tileToSvg(tile) { return `./svg/${encodeURIComponent(tile.id)}.svg`; }
   function renderInlineTiles(tiles) {
     return tiles.length ? tiles.map(t => `<img class="tile-inline" src="${tileToSvg(t)}" alt="${t.name}" title="${t.name}" onerror="this.style.display='none';" />`).join('') : '(无)';
@@ -218,6 +230,17 @@
   function getTileById(id) { return allTiles.find(t => t.id === id) || null; }
   function isMenzen() { return state.melds.length === 0 && state.ankan.length === 0; }
   function getTotalTiles() { return state.hand.length + (state.melds.length * 3) + (state.ankan.length * 4); }
+
+  function updateDealerIndicator() {
+    const indicator = document.getElementById('dealerIndicator');
+    if (isDealer()) {
+      indicator.className = 'dealer-indicator dealer';
+      indicator.textContent = '庄家 (亲)';
+    } else {
+      indicator.className = 'dealer-indicator non-dealer';
+      indicator.textContent = '闲家 (子)';
+    }
+  }
 
   function initTileSelectors() {
     const containers = ['handTiles', 'meldTiles', 'ankanTiles', 'doraTiles', 'uradoraTiles'];
@@ -290,14 +313,22 @@
       container.querySelectorAll('.wind-btn').forEach(b => b.classList.toggle('active', b.dataset.wind === wind));
     };
     document.getElementById('fieldWind').addEventListener('click', (e) => {
-      if (e.target.classList.contains('wind-btn')) { state.fieldWind = e.target.dataset.wind; setWindActive(e.target.parentElement, state.fieldWind); }
+      if (e.target.classList.contains('wind-btn')) { 
+        state.fieldWind = e.target.dataset.wind; 
+        setWindActive(e.target.parentElement, state.fieldWind); 
+      }
     });
     document.getElementById('seatWind').addEventListener('click', (e) => {
-      if (e.target.classList.contains('wind-btn')) { state.seatWind = e.target.dataset.wind; setWindActive(e.target.parentElement, state.seatWind); }
+      if (e.target.classList.contains('wind-btn')) { 
+        state.seatWind = e.target.dataset.wind; 
+        setWindActive(e.target.parentElement, state.seatWind);
+        updateDealerIndicator(); // 更新庄家指示器
+      }
     });
     setWindActive(document.getElementById('fieldWind'), 'east');
     setWindActive(document.getElementById('seatWind'), 'east');
-    document.getElementById('isDealer').addEventListener('change', (e) => state.isDealer = e.target.checked);
+    updateDealerIndicator();
+    
     document.querySelectorAll('input[name="winType"]').forEach(radio => {
       radio.addEventListener('change', (e) => state.winType = e.target.value);
     });
@@ -915,83 +946,77 @@
     return counts[winTile.id] === 1;
   }
 
-  // ====== 点数计算 (最终修正版) ======
   function calculatePoints(han, fu, isYakuman, yakumanCount) {
-    const isDealer = state.isDealer;
+    const dealer = isDealer();
     const isTsumo = state.winType === 'tsumo';
     
     if (isYakuman) {
       const count = yakumanCount;
       if (isTsumo) {
-        if (isDealer) {
+        if (dealer) {
           return { desc: `自摸：${16000 * count} 点 (全员)`, total: 48000 * count };
         } else {
           return { desc: `自摸：${8000 * count}/${16000 * count} 点`, total: 32000 * count };
         }
       } else {
-        const total = isDealer ? 48000 * count : 32000 * count;
+        const total = dealer ? 48000 * count : 32000 * count;
         return { desc: `荣和：${total} 点`, total: total };
       }
     } else {
-      // 满贯以上查表
       if (han >= 13) {
         if (isTsumo) {
-          if (isDealer) return { desc: `自摸：16000 点 (全员)`, total: 48000 };
+          if (dealer) return { desc: `自摸：16000 点 (全员)`, total: 48000 };
           else return { desc: `自摸：8000/16000 点`, total: 32000 };
         } else {
-          return { desc: `荣和：${isDealer ? 48000 : 32000} 点`, total: isDealer ? 48000 : 32000 };
+          return { desc: `荣和：${dealer ? 48000 : 32000} 点`, total: dealer ? 48000 : 32000 };
         }
       } else if (han >= 11) {
         if (isTsumo) {
-          if (isDealer) return { desc: `自摸：12000 点 (全员)`, total: 36000 };
+          if (dealer) return { desc: `自摸：12000 点 (全员)`, total: 36000 };
           else return { desc: `自摸：6000/12000 点`, total: 24000 };
         } else {
-          return { desc: `荣和：${isDealer ? 36000 : 24000} 点`, total: isDealer ? 36000 : 24000 };
+          return { desc: `荣和：${dealer ? 36000 : 24000} 点`, total: dealer ? 36000 : 24000 };
         }
       } else if (han >= 8) {
         if (isTsumo) {
-          if (isDealer) return { desc: `自摸：8000 点 (全员)`, total: 24000 };
+          if (dealer) return { desc: `自摸：8000 点 (全员)`, total: 24000 };
           else return { desc: `自摸：4000/8000 点`, total: 16000 };
         } else {
-          return { desc: `荣和：${isDealer ? 24000 : 16000} 点`, total: isDealer ? 24000 : 16000 };
+          return { desc: `荣和：${dealer ? 24000 : 16000} 点`, total: dealer ? 24000 : 16000 };
         }
       } else if (han >= 6) {
         if (isTsumo) {
-          if (isDealer) return { desc: `自摸：6000 点 (全员)`, total: 18000 };
+          if (dealer) return { desc: `自摸：6000 点 (全员)`, total: 18000 };
           else return { desc: `自摸：3000/6000 点`, total: 12000 };
         } else {
-          return { desc: `荣和：${isDealer ? 18000 : 12000} 点`, total: isDealer ? 18000 : 12000 };
+          return { desc: `荣和：${dealer ? 18000 : 12000} 点`, total: dealer ? 18000 : 12000 };
         }
       } else if (han >= 5) {
         if (isTsumo) {
-          if (isDealer) return { desc: `自摸：4000 点 (全员)`, total: 12000 };
+          if (dealer) return { desc: `自摸：4000 点 (全员)`, total: 12000 };
           else return { desc: `自摸：2000/4000 点`, total: 8000 };
         } else {
-          return { desc: `荣和：${isDealer ? 12000 : 8000} 点`, total: isDealer ? 12000 : 8000 };
+          return { desc: `荣和：${dealer ? 12000 : 8000} 点`, total: dealer ? 12000 : 8000 };
         }
       } else {
-        // 基本点计算 (修正：先算每人支付额再汇总)
         const base = fu * Math.pow(2, han + 2);
         
         if (isTsumo) {
-          if (isDealer) {
-            // 庄家自摸：每人支付 基本点×2
+          if (dealer) {
             const perPerson = Math.ceil(base * 2 / 100) * 100;
             return { 
               desc: `自摸：${perPerson} 点 (全员)`, 
               total: perPerson * 3 
             };
           } else {
-            // 闲家自摸：庄家支付 基本点×2，闲家支付 基本点×1
             const nonDealer = Math.ceil(base / 100) * 100;
-            const dealer = Math.ceil(base * 2 / 100) * 100;
+            const dealerPay = Math.ceil(base * 2 / 100) * 100;
             return { 
-              desc: `自摸：${nonDealer}/${dealer} 点`, 
-              total: nonDealer * 2 + dealer 
+              desc: `自摸：${nonDealer}/${dealerPay} 点`, 
+              total: nonDealer * 2 + dealerPay 
             };
           }
         } else {
-          // 荣和：支付者支付 基本点×4
           const ronPoints = Math.ceil(base * 4 / 100) * 100;
           return { 
             desc: `荣和：${ronPoints} 点`, 
