@@ -230,22 +230,21 @@
   function getTileById(id) { return allTiles.find(t => t.id === id) || null; }
   function isMenzen() { return state.melds.length === 0 && state.ankan.length === 0; }
   
-  // 修正：牌数计算（用于验证听牌合法性）
-  // 大明杠和暗杠都算 3 张名额（因为岭上摸牌）
+  // 牌数计算（用于验证听牌合法性）- 大明杠和暗杠都算 3 张名额
   function getTotalTiles() {
     let total = state.hand.length;
     state.melds.forEach(m => {
       if (m.length === 4) {
         total += 3; // 大明杠算 3 张名额
       } else {
-        total += m.length; // 吃/碰算实际张数
+        total += m.length;
       }
     });
     total += state.ankan.length * 3; // 暗杠算 3 张名额
     return total;
   }
 
-  // 获取实际牌数（用于役种判断、宝牌计算等）
+  // 获取实际所有牌（用于役种判断、宝牌计算、符数计算）- 大明杠/暗杠按 4 张计算
   function getAllTiles() {
     let tiles = [...state.hand];
     state.melds.forEach(m => {
@@ -253,6 +252,24 @@
     });
     state.ankan.forEach(t => {
       tiles = tiles.concat([t, t, t, t]);
+    });
+    return tiles;
+  }
+
+  // 获取听牌分析用的 13 张牌（大明杠/暗杠按 3 张计算）
+  function getTilesForTenpai() {
+    let tiles = [...state.hand];
+    state.melds.forEach(m => {
+      if (m.length === 4) {
+        // 大明杠按 3 张计算
+        tiles = tiles.concat([m[0], m[0], m[0]]);
+      } else {
+        tiles = tiles.concat(m);
+      }
+    });
+    state.ankan.forEach(t => {
+      // 暗杠按 3 张计算
+      tiles = tiles.concat([t, t, t]);
     });
     return tiles;
   }
@@ -268,19 +285,17 @@
     }
   }
 
-  // 检查每种牌是否超过 4 张
   function checkTileCount(tiles) {
     const counts = {};
-    tiles.forEach(t => {
+    for (const t of tiles) {
       counts[t.id] = (counts[t.id] || 0) + 1;
       if (counts[t.id] > 4) {
         return { valid: false, message: `${t.name} 超过 4 张！` };
       }
-    });
+    }
     return { valid: true };
   }
 
-  // 副露验证函数
   function validateMeld(tiles) {
     if (tiles.length < 3 || tiles.length > 4) {
       return { valid: false, message: '副露必须是 3 张或 4 张牌' };
@@ -364,7 +379,6 @@
       return;
     }
     
-    // 检查牌数是否超过 4 张
     const allTiles = getAllTiles();
     const newTiles = allTiles.concat(selectedForMeld);
     const check = checkTileCount(newTiles);
@@ -400,7 +414,6 @@
   function addAnkan() {
     if (!selectedForAnkan) { alert('请先选择一张牌！'); return; }
     
-    // 检查牌数是否超过 4 张
     const allTiles = getAllTiles();
     const newTiles = allTiles.concat([selectedForAnkan, selectedForAnkan, selectedForAnkan, selectedForAnkan]);
     const check = checkTileCount(newTiles);
@@ -452,11 +465,14 @@
     document.getElementById('chankan').addEventListener('change', (e) => state.chankan = e.target.checked);
   }
 
+  // 修正：使用 getTilesForTenpai() 获取 13 张牌
   function analyzeTenpai() {
     const allPossibleTiles = allTiles.filter(t => !t.red);
     const tenpaiTiles = [];
+    const baseTiles = getTilesForTenpai(); // 13 张牌
+    
     for (const tile of allPossibleTiles) {
-      const testHand = [...getAllTiles(), tile];
+      const testHand = [...baseTiles, tile]; // 14 张牌
       if (isValidMahjongHand(testHand) || isSevenPairs(testHand) || isKokushiMusou(testHand)) {
         tenpaiTiles.push(tile);
       }
@@ -983,7 +999,6 @@
       }
     }
 
-    // 符数计算：大明杠按 4 张牌计算
     const meldCounts = {};
     fullHand.forEach(t => meldCounts[t.id] = (meldCounts[t.id] || 0) + 1);
     
