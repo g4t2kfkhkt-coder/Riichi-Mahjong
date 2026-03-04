@@ -122,9 +122,10 @@
     <div class="tile-selector" id="meldTiles"></div>
     <div class="meld-display" id="meldDisplay">已选副露：</div>
     <div class="btn-group">
-      <button id="addMeld">添加副露</button>
+      <button id="addMeld">添加副露 (3 或 4 张)</button>
       <button id="clearMeld" class="danger">清空副露</button>
     </div>
+    <div class="muted" style="margin-top:8px;">提示：吃/碰选 3 张，大明杠选 4 张</div>
   </div>
 
   <div class="section">
@@ -218,7 +219,6 @@
     chankan: false
   };
 
-  // 根据自风自动判断是否是庄家
   function isDealer() {
     return state.seatWind === 'east';
   }
@@ -229,7 +229,14 @@
   }
   function getTileById(id) { return allTiles.find(t => t.id === id) || null; }
   function isMenzen() { return state.melds.length === 0 && state.ankan.length === 0; }
-  function getTotalTiles() { return state.hand.length + (state.melds.length * 3) + (state.ankan.length * 4); }
+  
+  // 修正：副露可以是 3 张或 4 张
+  function getTotalTiles() {
+    let total = state.hand.length;
+    state.melds.forEach(m => total += m.length); // 3 张或 4 张
+    total += state.ankan.length * 4;
+    return total;
+  }
 
   function updateDealerIndicator() {
     const indicator = document.getElementById('dealerIndicator');
@@ -269,13 +276,18 @@
 
   let selectedForMeld = [];
   function selectForMeld(tile) {
-    if (selectedForMeld.length >= 3) { alert('副露每组最多 3 张！'); return; }
+    // 修正：允许选择 3 张或 4 张
+    if (selectedForMeld.length >= 4) { alert('副露每组最多 4 张！'); return; }
     selectedForMeld.push(tile);
     updateMeldArea();
   }
   function addMeld() {
-    if (selectedForMeld.length !== 3) { alert('请选择 3 张牌组成副露！'); return; }
-    if (getTotalTiles() + 3 > 13) { alert('添加后总牌数超过 13 张！'); return; }
+    // 修正：允许 3 张或 4 张
+    if (selectedForMeld.length !== 3 && selectedForMeld.length !== 4) { 
+      alert('请选择 3 张（吃/碰）或 4 张（大明杠）组成副露！'); 
+      return; 
+    }
+    if (getTotalTiles() + selectedForMeld.length > 13) { alert('添加后总牌数超过 13 张！'); return; }
     state.melds.push([...selectedForMeld]);
     selectedForMeld = [];
     updateMeldArea();
@@ -283,9 +295,9 @@
   }
   function updateMeldArea() {
     const display = document.getElementById('meldDisplay');
-    const meldsHtml = state.melds.map(m => `[${renderInlineTiles(m)}]`).join(' ') || '(无)';
+    const meldsHtml = state.melds.map(m => `[${renderInlineTiles(m)}] (${m.length}张)`).join(' ') || '(无)';
     const curHtml = renderInlineTiles(selectedForMeld) || '(无)';
-    display.innerHTML = `<div><b>已选副露：</b>${meldsHtml}</div><div style="margin-top:6px;"><b>当前选择：</b>${curHtml}</div>`;
+    display.innerHTML = `<div><b>已选副露：</b>${meldsHtml}</div><div style="margin-top:6px;"><b>当前选择：</b>${curHtml}（${selectedForMeld.length}张）</div>`;
   }
 
   let selectedForAnkan = null;
@@ -322,7 +334,7 @@
       if (e.target.classList.contains('wind-btn')) { 
         state.seatWind = e.target.dataset.wind; 
         setWindActive(e.target.parentElement, state.seatWind);
-        updateDealerIndicator(); // 更新庄家指示器
+        updateDealerIndicator();
       }
     });
     setWindActive(document.getElementById('fieldWind'), 'east');
