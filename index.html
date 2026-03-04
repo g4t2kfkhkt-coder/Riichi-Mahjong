@@ -852,85 +852,50 @@
     return suits.size === 1 && !hasHonor;
   }
 
-   function checkToitoi(tiles) {
-    // 对对和定义：4 组刻子 + 1 组雀头
-    // 1. 统计每种牌的数量
+  // 【修正】对对和逻辑重构
+  function checkToitoi(tiles) {
+    // 对对和定义：4 组刻子/杠 + 1 组雀头
     const counts = {};
     tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
     
-    // 2. 找出所有数量 >= 3 的牌（潜在的刻子）
-    const potentialKotsuIds = Object.keys(counts).filter(id => counts[id] >= 3);
-    
-    // 如果潜在刻子少于 4 种，肯定不是对对和
-    if (potentialKotsuIds.length < 4) return false;
-    
-    // 3. 如果正好有 4 种牌数量 >= 3
-    if (potentialKotsuIds.length === 4) {
-      // 检查这 4 种牌是否都正好是 3 张
-      // 如果有任何一种是 4 张（杠），那么 4*3+1=13 张，剩下 1 张无法组成雀头
-      const allAreExactlyThree = potentialKotsuIds.every(id => counts[id] === 3);
-      
-      if (allAreExactlyThree) {
-        // 计算这 4 种牌之外的剩余牌
-        const remainingTiles = tiles.filter(t => !potentialKotsuIds.includes(t.id));
-        // 剩余必须是 2 张且相同（组成雀头）
-        if (remainingTiles.length === 2 && remainingTiles[0].id === remainingTiles[1].id) {
-          return true;
-        }
-      }
-      return false;
-    }
-    
-    
-    let pairCandidateId = null;
-    let kotsuCount = 0;
-    
-    for (const id in counts) {
-      const count = counts[id];
-      if (count === 2) {
-        if (pairCandidateId) return false; // 发现两个对子，失败
-        pairCandidateId = id;
-      } else if (count === 3 || count === 4) {
-        kotsuCount++;
-      } else {
-        // 出现 1 张，或 5 张以上，或其他数量，无法组成对对和
-        return false;
-      }
-    }
-    
-    // 必须正好有 1 个对子候选，且 4 个刻子候选
-    if (pairCandidateId && kotsuCount === 4) {
-      return true;
-    }
-    
     const ids = Object.keys(counts);
+    
+    // 尝试每一种可能的牌作为雀头
     for (let i = 0; i < ids.length; i++) {
       const pairId = ids[i];
       if (counts[pairId] >= 2) {
-        // 假设 pairId 是雀头
+        // 假设 pairId 是雀头，减去 2 张
         let valid = true;
         let kotsuNum = 0;
+        
         for (let j = 0; j < ids.length; j++) {
           const id = ids[j];
           let c = counts[id];
           if (id === pairId) {
             c -= 2; // 减去雀头
           }
+          
           if (c === 0) continue;
+          
+          // 剩余的牌必须正好是 3 张 (刻子) 或 4 张 (杠)
           if (c === 3 || c === 4) {
             kotsuNum++;
           } else {
+            // 如果出现 1 张，2 张，5 张等，说明这种雀头假设不成立
             valid = false;
             break;
           }
         }
-        if (valid && kotsuNum === 4) return true;
+        
+        // 如果 valid 为 true 且正好有 4 组刻子/杠，则是对对和
+        if (valid && kotsuNum === 4) {
+          return true;
+        }
       }
     }
     
     return false;
   }
-
 
   function checkSanshokuDoko(tiles) {
     const counts = {};
