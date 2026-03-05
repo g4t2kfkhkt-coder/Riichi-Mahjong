@@ -1119,6 +1119,7 @@
   }
 
   // 【修正】符数计算 - 平和荣和 30 符，平和自摸 20 符
+    // 【修正】符数计算 - 平和直接返回固定符数
   function calculateFu(winTile, yakuResult) {
     if (yakuResult.isYakuman) return 0;
     const fullHand = [...getAllTiles(), winTile];
@@ -1129,14 +1130,24 @@
     // 检查是否平和
     const isPinfu = yakuResult.yakuList.some(y => y.name === '平和');
     
+    // 【修正】平和直接返回固定符数，不进行后续计算
+    if (isPinfu) {
+        if (state.winType === 'tsumo') {
+            return 20;  // 平和自摸 20 符
+        } else {
+            return 30;  // 平和荣和 30 符（20 基础 +10 门清荣和）
+        }
+    }
+
+    // 非平和牌型才进行详细符数计算
     let fu = 20;
     const menzen = isMenzen();
 
-    // 门清荣和 +10 符（平和也加）
+    // 门清荣和 +10 符
     if (menzen && state.winType === 'ron') fu += 10;
     
-    // 自摸 +2 符（平和不加）
-    if (state.winType === 'tsumo' && !isPinfu) fu += 2;
+    // 自摸 +2 符
+    if (state.winType === 'tsumo') fu += 2;
 
     const counts = {};
     fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
@@ -1168,8 +1179,8 @@
       }
     }
 
-    // 【修正】平和不加听牌符，非平和荣和才加
-    if (!isPinfu && state.winType === 'ron') {
+    // 非平和荣和才加听牌符
+    if (state.winType === 'ron') {
       if (isKanchanWait(state.hand, winTile) || isPenchanWait(state.hand, winTile) || isTankiWait(state.hand, winTile)) {
         fu += 2;
       }
