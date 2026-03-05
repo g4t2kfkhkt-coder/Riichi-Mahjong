@@ -1039,33 +1039,50 @@
     return false;
   }
 
-    function checkSananko(tiles, ankan, winTile) {
-    const counts = {};
-    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-    
-    // 暗杠直接算暗刻
-    let ankoCount = ankan.length;
-    
-    for (const id in counts) {
-      if (counts[id] >= 3) {
-        // 检查是否在副露中
-        const isInMeld = state.melds.some(m => m.every(t => t.id === id));
-        if (isInMeld) {
-          continue; // 副露的刻子不算暗刻
+      function checkSananko(tiles, ankan, winTile) {
+    // 荣和时，和牌张组成的刻子不算暗刻
+    if (state.winType === 'ron' && winTile) {
+      // 统计手牌中各牌的数量（不含和牌张）
+      const handCounts = {};
+      tiles.forEach(t => {
+        if (t.id !== winTile.id) {
+          handCounts[t.id] = (handCounts[t.id] || 0) + 1;
         }
-        
-        // 荣和时，检查和牌张是否组成了这个刻子
-        if (state.winType === 'ron' && winTile && winTile.id === id) {
-          // 荣和的牌组成的刻子算明刻，不算暗刻
-          continue;
+      });
+      
+      // 暗杠直接算暗刻
+      let ankoCount = ankan.length;
+      
+      // 检查手牌中的刻子（3 张或 4 张）
+      for (const id in handCounts) {
+        if (handCounts[id] >= 3) {
+          // 检查是否在副露中
+          const isInMeld = state.melds.some(m => m.every(t => t.id === id));
+          if (!isInMeld) {
+            ankoCount++;
+          }
         }
-        
-        // 其他情况算暗刻
-        ankoCount++;
       }
+      
+      return ankoCount >= 3;
+    } else {
+      // 自摸时，所有非副露的刻子都算暗刻
+      const counts = {};
+      tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+      
+      let ankoCount = ankan.length;
+      
+      for (const id in counts) {
+        if (counts[id] >= 3) {
+          const isInMeld = state.melds.some(m => m.every(t => t.id === id));
+          if (!isInMeld) {
+            ankoCount++;
+          }
+        }
+      }
+      
+      return ankoCount >= 3;
     }
-    
-    return ankoCount >= 3;
   }
 
 
