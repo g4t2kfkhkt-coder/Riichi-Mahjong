@@ -527,169 +527,7 @@
     return null;
   }
 
-  // 【修正 3】七对子特殊处理 - 排除面子系役种
-  function calculateYaku(hand, winTile) {
-    const fullHand = [...getAllTiles(), winTile];
-    const yakuList = [];
-    let isYakuman = false;
-    let yakumanCount = 0;
-    const menzen = isMenzen();
-    const isChiiToi = isSevenPairs(fullHand);
-
-    // 役满判定
-    const suits = ['m', 'p', 's'];
-    for (let suit of suits) {
-      const suitTiles = fullHand.filter(t => t.suit === suit);
-      if (suitTiles.length === 14) {
-        const counts = {};
-        suitTiles.forEach(t => counts[t.num] = (counts[t.num] || 0) + 1);
-        let isChuren = (counts[1] >= 3) && (counts[9] >= 3);
-        for (let i = 2; i <= 8; i++) { if (!counts[i] || counts[i] < 1) isChuren = false; }
-        if (isChuren && menzen) {
-          yakuList.push({ name: '九莲宝灯', han: 13, isYakuman: true });
-          isYakuman = true; yakumanCount += 1; break; 
-        }
-      }
-    }
-
-    if (checkSuuAnkou(fullHand, winTile)) {
-      yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
-      isYakuman = true; yakumanCount += 1;
-    }
-
-    const sangenCounts = { 'white': 0, 'rich': 0, 'red': 0 };
-    fullHand.forEach(t => {
-      if (t.honor === 'haku') sangenCounts.white++;
-      if (t.honor === 'hatsu') sangenCounts.rich++;
-      if (t.honor === 'chun') sangenCounts.red++;
-    });
-    // 【修正】大三元需要刻子（3 张以上），七对子只有对子不算
-    if (sangenCounts.white >= 3 && sangenCounts.rich >= 3 && sangenCounts.red >= 3) {
-      yakuList.push({ name: '大三元', han: 13, isYakuman: true });
-      isYakuman = true; yakumanCount += 1;
-    }
-
-    if (isKokushiMusou(fullHand)) {
-      const uniqueIds = new Set(fullHand.map(t => t.id));
-      if (uniqueIds.size === 14) {
-        yakuList.push({ name: '国士无双十三面', han: 26, isYakuman: true });
-        isYakuman = true; yakumanCount += 2;
-      } else {
-        yakuList.push({ name: '国士无双', han: 13, isYakuman: true });
-        isYakuman = true; yakumanCount += 1;
-      }
-    }
-
-    const kanCount = state.melds.filter(m => m.length === 4).length + state.ankan.length;
-    if (kanCount >= 4) {
-      yakuList.push({ name: '四杠子', han: 13, isYakuman: true });
-      isYakuman = true; yakumanCount += 1;
-    }
-
-    if (fullHand.every(t => t.isYaochu && t.type !== 'honor')) {
-      yakuList.push({ name: '清老头', han: 13, isYakuman: true });
-      isYakuman = true; yakumanCount += 1;
-    }
-
-    if (fullHand.every(t => t.type === 'honor')) {
-      yakuList.push({ name: '字一色', han: 13, isYakuman: true });
-      isYakuman = true; yakumanCount += 1;
-    }
-
-    const greenTiles = ['2s','3s','4s','6s','8s','rich'];
-    if (fullHand.every(t => greenTiles.includes(t.id))) {
-      yakuList.push({ name: '绿一色', han: 13, isYakuman: true });
-      isYakuman = true; yakumanCount += 1;
-    }
-
-    // 非役满役种
-    if (!isYakuman) {
-      if (state.isRiichi && menzen) {
-        yakuList.push({ name: '立直', han: 1 });
-        if (state.ippatsu) yakuList.push({ name: '一发', han: 1 });
-      }
-      if (state.winType === 'tsumo' && menzen) yakuList.push({ name: '门清自摸和', han: 1 });
-      if (state.haitei) yakuList.push({ name: state.winType === 'tsumo' ? '海底摸月' : '河底捞鱼', han: 1 });
-      if (state.houtei) yakuList.push({ name: '岭上开花', han: 1 });
-      if (state.chankan) yakuList.push({ name: '抢杠', han: 1 });
-
-      if (!fullHand.some(t => t.isYaochu)) yakuList.push({ name: '断幺九', han: 1 });
-
-      const honorCounts = {};
-      fullHand.forEach(t => { if(t.type === 'honor') honorCounts[t.honor] = (honorCounts[t.honor] || 0) + 1; });
-      // 【修正】役牌需要刻子（3 张以上），七对子只有对子不算役牌
-      if (!isChiiToi) {
-        if (honorCounts[state.fieldWind] >= 3) yakuList.push({ name: `场风 (${getTileById(state.fieldWind).name})`, han: 1 });
-        if (honorCounts[state.seatWind] >= 3) yakuList.push({ name: `自风 (${getTileById(state.seatWind).name})`, han: 1 });
-        if (honorCounts['haku'] >= 3) yakuList.push({ name: '役牌 (白)', han: 1 });
-        if (honorCounts['hatsu'] >= 3) yakuList.push({ name: '役牌 (发)', han: 1 });
-        if (honorCounts['chun'] >= 3) yakuList.push({ name: '役牌 (中)', han: 1 });
-      }
-
-      // 【修正】平和、一杯口等需要面子牌型，七对子不算
-      if (!isChiiToi && menzen && state.winType === 'ron') {
-        // 平和判定逻辑重构
-        if (checkPinfu(fullHand, winTile)) {
-            yakuList.push({ name: '平和', han: 1 });
-        }
-      }
-
-      if (!isChiiToi) {
-        const iipeikoCount = countIipeiko(fullHand);
-        if (iipeikoCount >= 2 && menzen) {
-          yakuList.push({ name: '二杯口', han: 3 });
-        } else if (iipeikoCount >= 1 && menzen) {
-          yakuList.push({ name: '一杯口', han: 1 });
-        }
-
-        const sanshoku = countSanshokuDoshun(fullHand);
-        if (sanshoku > 0) { yakuList.push({ name: '三色同顺', han: menzen ? 2 : 1 }); }
-
-        const ittsuCount = countIttsu(fullHand);
-        if (ittsuCount > 0) { yakuList.push({ name: '一气通贯', han: menzen ? 2 : 1 }); }
-
-        // 【修正】混全/纯全需要面子牌型
-        const chanta = checkChanta(fullHand);
-        if (chanta === 2) { yakuList.push({ name: '纯全带幺九', han: menzen ? 3 : 2 }); }
-        else if (chanta === 1) { yakuList.push({ name: '混全带幺九', han: menzen ? 2 : 1 }); }
-
-        const isHonitsu = checkHonitsu(fullHand);
-        const isChinitsu = checkChinitsu(fullHand);
-        if (isChinitsu) { yakuList.push({ name: '清一色', han: menzen ? 6 : 5 }); }
-        else if (isHonitsu) { yakuList.push({ name: '混一色', han: menzen ? 3 : 2 }); }
-
-        const toitoi = checkToitoi(fullHand);
-        if (toitoi) { yakuList.push({ name: '对对和', han: 2 }); }
-
-        const sananko = checkSananko(fullHand, state.ankan);
-        if (sananko) { yakuList.push({ name: '三暗刻', han: 2 }); }
-
-        const sanshokuDoko = checkSanshokuDoko(fullHand);
-        if (sanshokuDoko) { yakuList.push({ name: '三色同刻', han: 2 }); }
-
-        if (kanCount >= 3) { yakuList.push({ name: '三杠子', han: 2 }); }
-
-        // 【修正】小三元需要 2 组刻子 +1 组雀头（都是三元牌）
-        const shosangen = checkShosangen(fullHand);
-        if (shosangen) { yakuList.push({ name: '小三元', han: 2 }); }
-
-        if (fullHand.every(t => t.isYaochu)) { yakuList.push({ name: '混老头', han: 2 }); }
-      }
-
-      // 七对子单独处理
-      if (isChiiToi) {
-        yakuList.push({ name: '七对子', han: 2 });
-        // 七对子也可以算混老头（全是幺九牌）
-        if (fullHand.every(t => t.isYaochu)) { 
-          yakuList.push({ name: '混老头', han: 2 }); 
-        }
-      }
-    }
-
-    return { yakuList, isYakuman, yakumanCount };
-  }
-
-      // 【修正】平和判定专用函数 - 最终版
+  // 【修正】平和判定专用函数 - 最终版
   function checkPinfu(tiles, winTile) {
     // 1. 检查雀头不能是役牌（字牌或场风/自风）
     const counts = {};
@@ -814,6 +652,160 @@
     return false;
   }
 
+  function calculateYaku(hand, winTile) {
+    const fullHand = [...getAllTiles(), winTile];
+    const yakuList = [];
+    let isYakuman = false;
+    let yakumanCount = 0;
+    const menzen = isMenzen();
+    const isChiiToi = isSevenPairs(fullHand);
+
+    // 役满判定
+    const suits = ['m', 'p', 's'];
+    for (let suit of suits) {
+      const suitTiles = fullHand.filter(t => t.suit === suit);
+      if (suitTiles.length === 14) {
+        const counts = {};
+        suitTiles.forEach(t => counts[t.num] = (counts[t.num] || 0) + 1);
+        let isChuren = (counts[1] >= 3) && (counts[9] >= 3);
+        for (let i = 2; i <= 8; i++) { if (!counts[i] || counts[i] < 1) isChuren = false; }
+        if (isChuren && menzen) {
+          yakuList.push({ name: '九莲宝灯', han: 13, isYakuman: true });
+          isYakuman = true; yakumanCount += 1; break; 
+        }
+      }
+    }
+
+    if (checkSuuAnkou(fullHand, winTile)) {
+      yakuList.push({ name: '四暗刻', han: 13, isYakuman: true });
+      isYakuman = true; yakumanCount += 1;
+    }
+
+    const sangenCounts = { 'white': 0, 'rich': 0, 'red': 0 };
+    fullHand.forEach(t => {
+      if (t.honor === 'haku') sangenCounts.white++;
+      if (t.honor === 'hatsu') sangenCounts.rich++;
+      if (t.honor === 'chun') sangenCounts.red++;
+    });
+    if (sangenCounts.white >= 3 && sangenCounts.rich >= 3 && sangenCounts.red >= 3) {
+      yakuList.push({ name: '大三元', han: 13, isYakuman: true });
+      isYakuman = true; yakumanCount += 1;
+    }
+
+    if (isKokushiMusou(fullHand)) {
+      const uniqueIds = new Set(fullHand.map(t => t.id));
+      if (uniqueIds.size === 14) {
+        yakuList.push({ name: '国士无双十三面', han: 26, isYakuman: true });
+        isYakuman = true; yakumanCount += 2;
+      } else {
+        yakuList.push({ name: '国士无双', han: 13, isYakuman: true });
+        isYakuman = true; yakumanCount += 1;
+      }
+    }
+
+    const kanCount = state.melds.filter(m => m.length === 4).length + state.ankan.length;
+    if (kanCount >= 4) {
+      yakuList.push({ name: '四杠子', han: 13, isYakuman: true });
+      isYakuman = true; yakumanCount += 1;
+    }
+
+    if (fullHand.every(t => t.isYaochu && t.type !== 'honor')) {
+      yakuList.push({ name: '清老头', han: 13, isYakuman: true });
+      isYakuman = true; yakumanCount += 1;
+    }
+
+    if (fullHand.every(t => t.type === 'honor')) {
+      yakuList.push({ name: '字一色', han: 13, isYakuman: true });
+      isYakuman = true; yakumanCount += 1;
+    }
+
+    const greenTiles = ['2s','3s','4s','6s','8s','rich'];
+    if (fullHand.every(t => greenTiles.includes(t.id))) {
+      yakuList.push({ name: '绿一色', han: 13, isYakuman: true });
+      isYakuman = true; yakumanCount += 1;
+    }
+
+    // 非役满役种
+    if (!isYakuman) {
+      if (state.isRiichi && menzen) {
+        yakuList.push({ name: '立直', han: 1 });
+        if (state.ippatsu) yakuList.push({ name: '一发', han: 1 });
+      }
+      if (state.winType === 'tsumo' && menzen) yakuList.push({ name: '门清自摸和', han: 1 });
+      if (state.haitei) yakuList.push({ name: state.winType === 'tsumo' ? '海底摸月' : '河底捞鱼', han: 1 });
+      if (state.houtei) yakuList.push({ name: '岭上开花', han: 1 });
+      if (state.chankan) yakuList.push({ name: '抢杠', han: 1 });
+
+      if (!fullHand.some(t => t.isYaochu)) yakuList.push({ name: '断幺九', han: 1 });
+
+      const honorCounts = {};
+      fullHand.forEach(t => { if(t.type === 'honor') honorCounts[t.honor] = (honorCounts[t.honor] || 0) + 1; });
+      if (!isChiiToi) {
+        if (honorCounts[state.fieldWind] >= 3) yakuList.push({ name: `场风 (${getTileById(state.fieldWind).name})`, han: 1 });
+        if (honorCounts[state.seatWind] >= 3) yakuList.push({ name: `自风 (${getTileById(state.seatWind).name})`, han: 1 });
+        if (honorCounts['haku'] >= 3) yakuList.push({ name: '役牌 (白)', han: 1 });
+        if (honorCounts['hatsu'] >= 3) yakuList.push({ name: '役牌 (发)', han: 1 });
+        if (honorCounts['chun'] >= 3) yakuList.push({ name: '役牌 (中)', han: 1 });
+      }
+
+      // 【修正】平和 - 移除 state.winType === 'ron' 限制
+      if (!isChiiToi && menzen) {
+        if (checkPinfu(fullHand, winTile)) {
+            yakuList.push({ name: '平和', han: 1 });
+        }
+      }
+
+      if (!isChiiToi) {
+        const iipeikoCount = countIipeiko(fullHand);
+        if (iipeikoCount >= 2 && menzen) {
+          yakuList.push({ name: '二杯口', han: 3 });
+        } else if (iipeikoCount >= 1 && menzen) {
+          yakuList.push({ name: '一杯口', han: 1 });
+        }
+
+        const sanshoku = countSanshokuDoshun(fullHand);
+        if (sanshoku > 0) { yakuList.push({ name: '三色同顺', han: menzen ? 2 : 1 }); }
+
+        const ittsuCount = countIttsu(fullHand);
+        if (ittsuCount > 0) { yakuList.push({ name: '一气通贯', han: menzen ? 2 : 1 }); }
+
+        const chanta = checkChanta(fullHand);
+        if (chanta === 2) { yakuList.push({ name: '纯全带幺九', han: menzen ? 3 : 2 }); }
+        else if (chanta === 1) { yakuList.push({ name: '混全带幺九', han: menzen ? 2 : 1 }); }
+
+        const isHonitsu = checkHonitsu(fullHand);
+        const isChinitsu = checkChinitsu(fullHand);
+        if (isChinitsu) { yakuList.push({ name: '清一色', han: menzen ? 6 : 5 }); }
+        else if (isHonitsu) { yakuList.push({ name: '混一色', han: menzen ? 3 : 2 }); }
+
+        const toitoi = checkToitoi(fullHand);
+        if (toitoi) { yakuList.push({ name: '对对和', han: 2 }); }
+
+        const sananko = checkSananko(fullHand, state.ankan);
+        if (sananko) { yakuList.push({ name: '三暗刻', han: 2 }); }
+
+        const sanshokuDoko = checkSanshokuDoko(fullHand);
+        if (sanshokuDoko) { yakuList.push({ name: '三色同刻', han: 2 }); }
+
+        if (kanCount >= 3) { yakuList.push({ name: '三杠子', han: 2 }); }
+
+        const shosangen = checkShosangen(fullHand);
+        if (shosangen) { yakuList.push({ name: '小三元', han: 2 }); }
+
+        if (fullHand.every(t => t.isYaochu)) { yakuList.push({ name: '混老头', han: 2 }); }
+      }
+
+      // 七对子单独处理
+      if (isChiiToi) {
+        yakuList.push({ name: '七对子', han: 2 });
+        if (fullHand.every(t => t.isYaochu)) { 
+          yakuList.push({ name: '混老头', han: 2 }); 
+        }
+      }
+    }
+
+    return { yakuList, isYakuman, yakumanCount };
+  }
 
   function countShuntsu(tiles) {
     let count = 0;
@@ -933,7 +925,6 @@
   }
 
   function checkChanta(tiles) {
-    // 【修正】七对子不算混全/纯全
     if (isSevenPairs(tiles)) return 0;
     
     const hasHonor = tiles.some(t => t.type === 'honor');
@@ -972,19 +963,15 @@
     return suits.size === 1 && !hasHonor;
   }
 
-  // 【修正】对对和逻辑重构
   function checkToitoi(tiles) {
-    // 对对和定义：4 组刻子/杠 + 1 组雀头
     const counts = {};
     tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
     
     const ids = Object.keys(counts);
     
-    // 尝试每一种可能的牌作为雀头
     for (let i = 0; i < ids.length; i++) {
       const pairId = ids[i];
       if (counts[pairId] >= 2) {
-        // 假设 pairId 是雀头，减去 2 张
         let valid = true;
         let kotsuNum = 0;
         
@@ -992,22 +979,19 @@
           const id = ids[j];
           let c = counts[id];
           if (id === pairId) {
-            c -= 2; // 减去雀头
+            c -= 2;
           }
           
           if (c === 0) continue;
           
-          // 剩余的牌必须正好是 3 张 (刻子) 或 4 张 (杠)
           if (c === 3 || c === 4) {
             kotsuNum++;
           } else {
-            // 如果出现 1 张，2 张，5 张等，说明这种雀头假设不成立
             valid = false;
             break;
           }
         }
         
-        // 如果 valid 为 true 且正好有 4 组刻子/杠，则是对对和
         if (valid && kotsuNum === 4) {
           return true;
         }
@@ -1017,7 +1001,6 @@
     return false;
   }
 
-  // 【补回】三暗刻判定函数
   function checkSananko(tiles, ankan) {
     const counts = {};
     tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
@@ -1043,9 +1026,7 @@
     return false;
   }
 
-  // 【修正 4】小三元需要刻子（3 张以上），不是对子
   function checkShosangen(tiles) {
-    // 七对子不算小三元
     if (isSevenPairs(tiles)) return false;
     
     const sangenCounts = { 'white': 0, 'rich': 0, 'red': 0 };
@@ -1054,13 +1035,11 @@
       if (t.honor === 'hatsu') sangenCounts.rich++;
       if (t.honor === 'chun') sangenCounts.red++;
     });
-    // 需要 2 组刻子（>=3 张）+ 1 组雀头（>=2 张）
     const kotsuCount = Object.values(sangenCounts).filter(c => c >= 3).length;
     const hasPair = Object.values(sangenCounts).some(c => c >= 2);
     return kotsuCount >= 2 && hasPair;
   }
 
-  // 旧的两面听检查，已废弃
   function isRyanmenWait(hand, winTile) {
     const testHand = [...hand, winTile];
     const counts = {};
@@ -1104,7 +1083,14 @@
   function calculateFu(winTile, yakuResult) {
     if (yakuResult.isYakuman) return 0;
     const fullHand = [...getAllTiles(), winTile];
-    // 【修正】七对子固定 25 符
+    
+    // 【修正】平和固定 20 符（雀魂规则）
+    const isPinfu = yakuResult.yakuList.some(y => y.name === '平和');
+    if (isPinfu) {
+        return 20;
+    }
+
+    // 七对子固定 25 符
     if (isSevenPairs(fullHand)) return 25;
 
     let fu = 20;
@@ -1143,7 +1129,8 @@
       }
     }
 
-    if (state.winType === 'ron') {
+    // 【修正】非平和牌型才加听牌符
+    if (!isPinfu && state.winType === 'ron') {
       if (isKanchanWait(state.hand, winTile) || isPenchanWait(state.hand, winTile) || isTankiWait(state.hand, winTile)) {
         fu += 2;
       }
