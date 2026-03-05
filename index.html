@@ -1130,29 +1130,25 @@ function checkSananko(tiles, ankan, winTile) {
     }
   }).filter(Boolean);
 
-  // 获取所有牌（包括手牌、副露、暗杠）
-  const allTilesInHand = getAllTiles();
-  // 添加和牌张
-  const fullHandForDora = [...allTilesInHand, winTile];
+  const fullHandForDora = getAllTiles();
   
-  // 统计红宝牌：每种花色最多1个
-  const redDoraCountBySuit = { m: 0, p: 0, s: 0 };
+  // 统计红宝牌数量
+  // 雀魂规则：每种花色的5（万/筒/索）只有一张红宝牌
+  // 所以我们需要按花色统计红5，每种花色最多只能有1张红宝牌
   
-  // 首先统计手牌中的红宝牌
-  allTilesInHand.forEach(t => {
+  // 统计手牌中的红5（已选手牌中的红宝牌）
+  const redTilesInHand = {};
+  fullHandForDora.forEach(t => {
     if (t.red) {
-      redDoraCountBySuit[t.suit] = 1; // 标记该花色有红宝牌
+      // t.red为true表示这是红宝牌
+      // 按花色统计，每种花色最多1个红宝牌
+      if (!redTilesInHand[t.suit]) {
+        redTilesInHand[t.suit] = true;
+        count++; // 每种花色的第一个红5算1番
+      }
+      // 同一花色的后续红5不计番（因为实际牌局中不会出现）
     }
   });
-  
-  // 检查和牌张是否为红宝牌
-  if (winTile.red) {
-    redDoraCountBySuit[winTile.suit] = 1;
-  }
-  
-  // 计算红宝牌总数
-  const redDoraTotal = Object.values(redDoraCountBySuit).reduce((sum, val) => sum + val, 0);
-  count += redDoraTotal;
   
   // 统计普通宝牌
   fullHandForDora.forEach(t => {
@@ -1164,8 +1160,24 @@ function checkSananko(tiles, ankan, winTile) {
     }
   });
   
+  // 处理和牌张
+  if (winTile.red) {
+    // 和牌张是红宝牌
+    if (!redTilesInHand[winTile.suit]) {
+      // 如果手牌中还没有这个花色的红宝牌，则计数
+      count++;
+    }
+    // 否则已经统计过了，不重复计数
+  } else {
+    // 和牌张不是红宝牌，检查是否是普通宝牌
+    if (doraTiles.some(d => d.id === winTile.id)) {
+      count++;
+    }
+  }
+  
   return count;
 }
+
 
 
   // 【修正】符数计算 - 平和荣和 30 符，平和自摸 20 符
