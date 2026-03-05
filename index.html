@@ -1041,38 +1041,141 @@
 
 function checkSananko(tiles, ankan, winTile) {
   const isRon = state.winType === 'ron';
-  const counts = {};
-  tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-  
-  let ankoCount = 0;
-  
-  // 1. 暗杠算暗刻
-  ankoCount += ankan.length;
-  
-  // 2. 遍历所有牌的种类，统计暗刻
-  for (const id in counts) {
-    // 跳过暗杠的牌（已经计入）
-    if (ankan.some(t => t.id === id)) continue;
-    
-    const count = counts[id];
-    // 手牌中有3张或4张相同的牌，且没有副露，可以形成一个暗刻
-    if (count >= 3) {
-      const isInMeld = state.melds.some(m => m.every(t => t.id === id));
-      if (!isInMeld) {
-        // 荣和时，如果这个刻子包含和牌张，则不算暗刻
-        if (isRon && winTile && id === winTile.id) {
-          // 和牌张组成的刻子不算暗刻
-          continue;
+  if (!isRon) {
+    // 自摸情况，使用原有逻辑
+    const counts = {};
+    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    let ankoCount = ankan.length;
+    for (const id in counts) {
+      if (ankan.some(t => t.id === id)) continue;
+      if (counts[id] >= 3) {
+        const isInMeld = state.melds.some(m => m.every(t => t.id === id));
+        if (!isInMeld) {
+          ankoCount++;
         }
-        // 重要修正：无论有几张相同的牌（3张或4张），只算一个暗刻
-        // 因为四张相同牌在手牌中只能作为一个暗刻，不能算两个
-        ankoCount++;
       }
     }
+    return ankoCount >= 3;
   }
-  
-  return ankoCount >= 3;
+
+  // 荣和情况：需要尝试不同的面子分解，以最大化暗刻数量
+  // 我们使用递归枚举所有可能的面子分解，然后检查暗刻数量
+  const allTiles = [...tiles]; // 注意：tiles已经包含了和牌张
+  // 我们将和牌张标记出来，以便在分解时知道它被用在哪里
+  const winTileId = winTile.id;
+
+  // 统计牌的数量
+  const counts = {};
+  allTiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+
+  // 首先，暗杠必然算暗刻
+  let baseAnko = ankan.length;
+
+  // 准备一个递归函数来枚举面子分解
+  // 由于时间有限，我们采用简化的枚举：只考虑刻子和顺子，雀头需要一对
+  // 我们尝试所有可能的雀头选择，然后尝试将剩余12张牌分成4组面子
+  const allIds = Object.keys(counts);
+  let maxAnko = 0;
+
+  // 遍历所有可能的雀头
+  for (let i = 0; i < allIds.length; i++) {
+    const pairId = allIds[i];
+    if (counts[pairId] < 2) continue;
+
+    // 复制counts，减去一对雀头
+    const tempCounts = { ...counts };
+    tempCounts[pairId] -= 2;
+    if (tempCounts[pairId] === 0) delete tempCounts[pairId];
+
+    // 现在需要将剩余牌分成4组面子，每组3张牌
+    // 我们将牌ID数组化，便于递归
+    const remainingTiles = [];
+    for (const id in tempCounts) {
+      const tile = getTileById(id);
+      for (let j = 0; j < tempCounts[id]; j++) {
+        remainingTiles.push(tile);
+      }
+    }
+
+    // 递归函数：尝试将牌分解为面子，并计算暗刻数量
+    function decompose(tilesArr, startIdx, mentsuList) {
+      if (mentsuList.length === 4) {
+        // 成功分解，计算暗刻数量
+        let anko = baseAnko;
+        mentsuList.forEach(mentsu => {
+          if (mentsu.type === 'kotsu') {
+            // 刻子：检查是否暗刻（没有副露，且不包含荣和牌？）
+            // 暗刻定义：刻子中的所有牌都是手牌中的（即没有副露，且不是荣和牌组成的刻子）
+            // 但荣和牌可能被用于这个刻子，如果被用了，则不算暗刻
+            // 我们需要知道这个刻子是否包含了荣和牌
+            const tileId = mentsu.tile.id;
+            const isWinTileInKotsu = tileId === winTileId;
+            // 检查是否在副露中
+            const isInMeld = state.melds.some(m => m.every(t => t.id === tileId));
+            if (!isInMeld && !isWinTileInKotsu) {
+              anko++;
+            }
+          }
+        });
+        if (anko > maxAnko) maxAnko = anko;
+        return;
+      }
+      if (startIdx >= tilesArr.length) return;
+
+      const currentTile = tilesArr[startIdx];
+      // 尝试刻子
+      if (tilesArr.filter(t => t.id === currentTile.id).length >= 3) {
+        // 移除三张相同的牌
+        const newTiles = [];
+        let removed = 0;
+        for (let k = 0; k < tilesArr.length; k++) {
+          if (k < startIdx) {
+            newTiles.push(tilesArr[k]);
+          } else {
+            if (tilesArr[k].id === currentTile.id && removed < 3) {
+              removed++;
+            } else {
+              newTiles.push(tilesArr[k]);
+            }
+          }
+        }
+        if (removed === 3) {
+          decompose(newTiles, 0, [...mentsuList, { type: 'kotsu', tile: currentTile }]);
+        }
+      }
+
+      // 尝试顺子（仅数牌）
+      if (currentTile.type !== 'honor') {
+        const suit = currentTile.suit;
+        const num = currentTile.num;
+        const next1Id = `${num + 1}${suit}`;
+        const next2Id = `${num + 2}${suit}`;
+        const next1Tile = allTiles.find(t => t.id === next1Id);
+        const next2Tile = allTiles.find(t => t.id === next2Id);
+        if (next1Tile && next2Tile) {
+          // 检查这三张牌是否都存在
+          const indices = [];
+          for (let k = 0; k < tilesArr.length; k++) {
+            const t = tilesArr[k];
+            if (t.id === currentTile.id) indices.push(k);
+            else if (t.id === next1Id) indices.push(k);
+            else if (t.id === next2Id) indices.push(k);
+            if (indices.length === 3) break;
+          }
+          if (indices.length === 3) {
+            const newTiles = tilesArr.filter((t, idx) => !indices.includes(idx));
+            decompose(newTiles, 0, [...mentsuList, { type: 'shuntsu', tile: currentTile }]);
+          }
+        }
+      }
+    }
+
+    decompose(remainingTiles, 0, []);
+  }
+
+  return maxAnko >= 3;
 }
+
 
 
 
