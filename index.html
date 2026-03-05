@@ -1134,7 +1134,7 @@ function checkToitoi(tiles) {
   return false; 
 } 
 
-// 修正的三暗刻判定函数
+// 修正的三暗刻判定函数 - 最终版
 function checkSananko(tiles, ankan, winTile) {
   const isRon = state.winType === 'ron';
   const allTiles = [...tiles];
@@ -1166,91 +1166,158 @@ function checkSananko(tiles, ankan, winTile) {
       }
     }
     
-    // 优先移除所有可能的顺子
-    function removeAllShuntsu(tilesArray) {
-      const result = [...tilesArray];
-      const suits = ['m', 'p', 's'];
+    // 关键修正：尝试将和牌张用于顺子，而不是刻子
+    // 对于荣和情况，我们需要尝试所有可能的面子分解
+    if (isRon && winTile) {
+      // 和牌张可能被用于顺子或刻子
+      // 我们需要尝试两种可能性，并取暗刻数量最大的分解
       
-      for (const suit of suits) {
-        const suitTiles = result.filter(t => t.suit === suit);
-        if (suitTiles.length < 3) continue;
+      // 可能性1：和牌张用于刻子（此时该刻子不算暗刻）
+      // 可能性2：和牌张用于顺子（此时其他刻子可能成为暗刻）
+      
+      // 我们将尝试枚举所有可能的面子分解
+      function findMaxAnkoDecomposition(tilesArray, usedWinTileInKotsu) {
+        if (tilesArray.length === 0) {
+          return 0; // 递归终止条件
+        }
         
-        // 按数字排序
-        const nums = suitTiles.map(t => t.num).sort((a, b) => a - b);
+        let maxLocalAnko = 0;
         
-        // 尝试从1到7寻找顺子
-        for (let num = 1; num <= 7; num++) {
-          while (nums.includes(num) && nums.includes(num + 1) && nums.includes(num + 2)) {
-            // 移除这个顺子
-            const idx1 = result.findIndex(t => t.suit === suit && t.num === num);
-            const idx2 = result.findIndex(t => t.suit === suit && t.num === num + 1);
-            const idx3 = result.findIndex(t => t.suit === suit && t.num === num + 2);
-            
-            if (idx1 !== -1 && idx2 !== -1 && idx3 !== -1) {
-              // 移除这三张牌
-              const maxIdx = Math.max(idx1, idx2, idx3);
-              const minIdx = Math.min(idx1, idx2, idx3);
-              result.splice(maxIdx, 1);
-              result.splice(minIdx, 1);
-              const midIdx = idx1 + idx2 + idx3 - maxIdx - minIdx;
-              result.splice(midIdx, 1);
-              
-              // 更新nums数组
-              const newNums = result.filter(t => t.suit === suit).map(t => t.num).sort((a, b) => a - b);
-              nums.length = 0;
-              nums.push(...newNums);
+        // 尝试刻子分解
+        const firstTile = tilesArray[0];
+        const sameTiles = tilesArray.filter(t => t.id === firstTile.id);
+        
+        if (sameTiles.length >= 3) {
+          // 移除三张相同的牌
+          const newTiles = tilesArray.filter((t, idx) => {
+            if (t.id === firstTile.id) {
+              if (sameTiles.length >= 3) {
+                sameTiles.pop();
+                return false;
+              }
+            }
+            return true;
+          });
+          
+          // 检查是否在副露中
+          const isInMeld = state.melds.some(m => m.every(t => t.id === firstTile.id));
+          let ankoIncrement = 0;
+          
+          if (!isInMeld) {
+            // 荣和情况下，如果这个刻子包含和牌张，则不算暗刻
+            if (firstTile.id === winTile.id) {
+              // 和牌张组成的刻子不算暗刻
             } else {
-              break;
+              ankoIncrement = 1;
+            }
+          }
+          
+          const restAnko = findMaxAnkoDecomposition(newTiles, usedWinTileInKotsu || (firstTile.id === winTile.id));
+          maxLocalAnko = Math.max(maxLocalAnko, ankoIncrement + restAnko);
+        }
+        
+        // 尝试顺子分解（仅数牌）
+        if (firstTile.type !== 'honor' && firstTile.num <= 7) {
+          const suit = firstTile.suit;
+          const num = firstTile.num;
+          const next1Id = `${num + 1}${suit}`;
+          const next2Id = `${num + 2}${suit}`;
+          
+          // 查找这三张牌
+          const tile1Idx = tilesArray.findIndex(t => t.id === firstTile.id);
+          const tile2Idx = tilesArray.findIndex(t => t.id === next1Id);
+          const tile3Idx = tilesArray.findIndex(t => t.id === next2Id);
+          
+          if (tile2Idx !== -1 && tile3Idx !== -1) {
+            // 移除这三张牌
+            const newTiles = [...tilesArray];
+            const indices = [tile1Idx, tile2Idx, tile3Idx].sort((a, b) => b - a);
+            indices.forEach(idx => newTiles.splice(idx, 1));
+            
+            const restAnko = findMaxAnkoDecomposition(newTiles, usedWinTileInKotsu);
+            maxLocalAnko = Math.max(maxLocalAnko, restAnko);
+          }
+        }
+        
+        return maxLocalAnko;
+      }
+      
+      // 计算最大暗刻数量
+      const maxLocalAnko = findMaxAnkoDecomposition(remainingTiles, false);
+      const totalAnko = baseAnko + maxLocalAnko;
+      
+      if (totalAnko > maxAnko) {
+        maxAnko = totalAnko;
+      }
+    } else {
+      // 自摸情况：使用简化的统计方法
+      // 先移除所有可能的顺子，然后统计剩余牌中的刻子
+      function removeShuntsu(tilesArray) {
+        const result = [...tilesArray];
+        const suits = ['m', 'p', 's'];
+        
+        for (const suit of suits) {
+          const suitTiles = result.filter(t => t.suit === suit);
+          if (suitTiles.length < 3) continue;
+          
+          // 按数字排序
+          const nums = suitTiles.map(t => t.num).sort((a, b) => a - b);
+          
+          // 尝试从1到7寻找顺子
+          for (let num = 1; num <= 7; num++) {
+            while (nums.includes(num) && nums.includes(num + 1) && nums.includes(num + 2)) {
+              // 移除这个顺子
+              const idx1 = result.findIndex(t => t.suit === suit && t.num === num);
+              const idx2 = result.findIndex(t => t.suit === suit && t.num === num + 1);
+              const idx3 = result.findIndex(t => t.suit === suit && t.num === num + 2);
+              
+              if (idx1 !== -1 && idx2 !== -1 && idx3 !== -1) {
+                result.splice(Math.max(idx1, idx2, idx3), 1);
+                result.splice(Math.min(idx1, idx2, idx3), 1);
+                const midIdx = [idx1, idx2, idx3].sort((a, b) => a - b)[1];
+                result.splice(midIdx, 1);
+                
+                // 更新nums数组
+                const newNums = result.filter(t => t.suit === suit).map(t => t.num).sort((a, b) => a - b);
+                nums.length = 0;
+                nums.push(...newNums);
+              } else {
+                break;
+              }
             }
           }
         }
+        
+        return result;
       }
       
-      return result;
-    }
-    
-    // 移除所有可能的顺子
-    const tilesAfterShuntsu = removeAllShuntsu(remainingTiles);
-    
-    // 统计剩余牌中的刻子（暗刻）
-    const remainingCounts = {};
-    tilesAfterShuntsu.forEach(t => remainingCounts[t.id] = (remainingCounts[t.id] || 0) + 1);
-    
-    let currentAnko = baseAnko;
-    for (const id in remainingCounts) {
-      if (remainingCounts[id] >= 3) {
-        // 检查是否在副露中
-        const isInMeld = state.melds.some(m => m.every(t => t.id === id));
-        if (!isInMeld) {
-          // 荣和情况下，如果这个刻子包含和牌张，则不算暗刻
-          if (isRon && winTile && id === winTile.id) {
-            // 和牌张组成的刻子不算暗刻
-            continue;
+      // 移除所有可能的顺子
+      const tilesAfterShuntsu = removeShuntsu(remainingTiles);
+      
+      // 统计剩余牌中的刻子（暗刻）
+      const remainingCounts = {};
+      tilesAfterShuntsu.forEach(t => remainingCounts[t.id] = (remainingCounts[t.id] || 0) + 1);
+      
+      let currentAnko = baseAnko;
+      for (const id in remainingCounts) {
+        if (remainingCounts[id] >= 3) {
+          // 检查是否在副露中
+          const isInMeld = state.melds.some(m => m.every(t => t.id === id));
+          if (!isInMeld) {
+            currentAnko++;
           }
-          currentAnko++;
         }
       }
-    }
-    
-    // 检查剩余牌是否都能组成面子（刻子）
-    let canAllBeKotsu = true;
-    for (const id in remainingCounts) {
-      if (remainingCounts[id] % 3 !== 0) {
-        canAllBeKotsu = false;
-        break;
+      
+      if (currentAnko > maxAnko) {
+        maxAnko = currentAnko;
       }
-    }
-    
-    // 如果能全部组成刻子，或者已经至少有3个暗刻，则记录
-    if (canAllBeKotsu && currentAnko > maxAnko) {
-      maxAnko = currentAnko;
-    } else if (currentAnko >= 3) {
-      maxAnko = Math.max(maxAnko, currentAnko);
     }
   }
   
   return maxAnko >= 3;
 }
+
 
 function checkSanshokuDoko(tiles) { 
   const counts = {}; 
