@@ -1134,147 +1134,136 @@ function checkToitoi(tiles) {
   return false; 
 } 
 
-function checkSananko(tiles, ankan, winTile) {
-  const isRon = state.winType === 'ron';
-  const allTiles = [...tiles];
-  
-  // 统计所有牌的数量
-  const counts = {};
-  allTiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-  
-  // 暗杠算暗刻
-  let baseAnko = ankan.length;
-  
-  // 枚举所有可能的雀头
-  const allIds = Object.keys(counts);
-  let maxAnko = 0;
-  
-  for (let i = 0; i < allIds.length; i++) {
-    const pairId = allIds[i];
-    if (counts[pairId] < 2) continue;
+function checkSananko(fullHand, ankan, winTile) {
+    // 1. 基础暗杠直接算
+    let baseAnko = ankan.length;
+
+    // 2. 将手牌转换为 ID 计数字典
+    const counts = {};
+    fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+
+    // 3. 尝试所有可能的雀头，寻找能组成 4 组面子且暗刻数 >=3 的解法
+    const ids = Object.keys(counts);
     
-    // 复制counts，减去一对雀头
-    const tempCounts = { ...counts };
-    tempCounts[pairId] -= 2;
-    if (tempCounts[pairId] === 0) delete tempCounts[pairId];
-    
-    // 构建剩余牌数组
-    const remainingTiles = [];
-    for (const id in tempCounts) {
-      const tile = getTileById(id);
-      for (let j = 0; j < tempCounts[id]; j++) {
-        remainingTiles.push(tile);
-      }
+    for (let i = 0; i < ids.length; i++) {
+        const pairId = ids[i];
+        if (counts[pairId] < 2) continue;
+
+        // 复制一份计数用于递归分解
+        const tempCounts = { ...counts };
+        tempCounts[pairId] -= 2;
+        if (tempCounts[pairId] === 0) delete tempCounts[pairId];
+
+        // 尝试分解剩下的 12 张牌为 4 组面子
+        // 我们需要一种分解方式，使得其中的“暗刻”数量 + baseAnko >= 3
+        const result = decomposeForSanAnko(tempCounts, 0, baseAnko, winTile);
+        
+        if (result) return true;
     }
-    
-    // 递归函数：尝试所有面子分解
-    function decompose(tilesArray, mentsuList) {
-      if (mentsuList.length === 4) {
-        // 成功分解，计算暗刻数量
-        let anko = baseAnko;
-        
-        mentsuList.forEach(mentsu => {
-          if (mentsu.type === 'kotsu') {
-            // 检查是否在副露中
-            const isInMeld = state.melds.some(m => m.every(t => t.id === mentsu.tileId));
-            if (!isInMeld) {
-              // 荣和时，如果这个刻子包含和牌张，则不算暗刻
-              if (isRon && winTile && mentsu.tileId === winTile.id) {
-                // 和牌张组成的刻子不算暗刻
-              } else {
-                anko++;
-              }
-            }
-          }
-        });
-        
-        return anko;
-      }
-      
-      if (tilesArray.length === 0) return 0;
-      
-      let bestAnko = 0;
-      const firstTile = tilesArray[0];
-      
-      // 尝试刻子
-      const sameTiles = tilesArray.filter(t => t.id === firstTile.id);
-      if (sameTiles.length >= 3) {
-        // 移除三张相同的牌
-        const newTiles = [];
-        let removed = 0;
-        for (const t of tilesArray) {
-          if (t.id === firstTile.id && removed < 3) {
-            removed++;
-          } else {
-            newTiles.push(t);
-          }
-        }
-        
-        const anko = decompose(newTiles, [...mentsuList, {
-          type: 'kotsu',
-          tileId: firstTile.id
-        }]);
-        bestAnko = Math.max(bestAnko, anko);
-      }
-      
-      // 尝试顺子（仅数牌）
-      if (firstTile.type !== 'honor') {
-        const suit = firstTile.suit;
-        const num = firstTile.num;
-        
-        if (num <= 7) {
-          const tile2Id = `${num + 1}${suit}`;
-          const tile3Id = `${num + 2}${suit}`;
-          
-          // 检查这三张牌是否都在数组中
-          const tile1Idx = tilesArray.findIndex(t => t.id === firstTile.id);
-          let tile2Idx = -1;
-          let tile3Idx = -1;
-          
-          for (let j = 0; j < tilesArray.length; j++) {
-            if (j !== tile1Idx) {
-              if (tilesArray[j].id === tile2Id && tile2Idx === -1) {
-                tile2Idx = j;
-              } else if (tilesArray[j].id === tile3Id && tile3Idx === -1) {
-                tile3Idx = j;
-              }
-            }
-          }
-          
-          if (tile2Idx !== -1 && tile3Idx !== -1) {
-            // 移除这三张牌
-            const newTiles = [...tilesArray];
-            const indices = [tile1Idx, tile2Idx, tile3Idx].sort((a, b) => b - a);
-            indices.forEach(idx => newTiles.splice(idx, 1));
-            
-            const anko = decompose(newTiles, [...mentsuList, {
-              type: 'shuntsu',
-              tileId: firstTile.id
-            }]);
-            bestAnko = Math.max(bestAnko, anko);
-          }
-        }
-      }
-      
-      // 如果当前牌无法组成面子，尝试跳过（但这样可能无法完成分解）
-      // 只有当剩余牌足够组成剩余面子时才跳过
-      const remainingMentsuNeeded = 4 - mentsuList.length;
-      if (tilesArray.length > remainingMentsuNeeded * 3) {
-        const anko = decompose(tilesArray.slice(1), mentsuList);
-        bestAnko = Math.max(bestAnko, anko);
-      }
-      
-      return bestAnko;
-    }
-    
-    const currentAnko = decompose(remainingTiles, []);
-    if (currentAnko > maxAnko) {
-      maxAnko = currentAnko;
-    }
-  }
-  
-  return maxAnko >= 3;
+
+    return false;
 }
+
+// 递归分解面子，并计算暗刻数
+// targetAnko: 当前已找到的暗刻数
+function decomposeForSanAnko(counts, currentAnko, baseAnko, winTile) {
+    // 如果已经找到 4 组面子
+    if (Object.keys(counts).length === 0) {
+        return (baseAnko + currentAnko) >= 3;
+    }
+
+    // 如果暗刻数已经足够 3 个（加上基础暗杠），且剩余牌能简单分解（不关心是否暗刻），可以提前返回 true
+    // 但为了严谨，我们必须确保剩余牌能完全分解。
+    // 优化：如果 baseAnko + currentAnko >= 3，我们只需要检查剩余牌能否分解成任意面子（顺子或刻子）
+    if (baseAnko + currentAnko >= 3) {
+        return canDecomposeToAnyMentsu(counts);
+    }
+
+    // 获取当前最小的牌 ID 作为起点
+    const firstId = Object.keys(counts).sort()[0];
+    const tile = getTileById(firstId);
+    const count = counts[firstId];
+
+    // 尝试 1: 组成刻子 (Kotsu)
+    if (count >= 3) {
+        // 判断这个刻子是否是“暗刻”
+        let isAnko = true;
+        
+        // 如果是荣和，且这个刻子包含了和牌张 (winTile)，则它是明刻
+        if (state.winType === 'ron' && tile.id === winTile.id) {
+            isAnko = false;
+        }
+        // 注意：如果手牌有 3 张，荣和第 4 张（变明杠），或者手牌 2 张荣和第 3 张（变明刻），都算明。
+        // 上面的逻辑覆盖了荣和 winTile 的情况。
+        // 如果是自摸，手牌 2 张 + 自摸 1 张 = 暗刻。手牌 3 张 + 自摸 1 张 = 暗杠 (也是暗刻)。
+        // 所以只有 荣和 且 包含 winTile 时，才不是暗刻。
+
+        const newCounts = { ...counts };
+        newCounts[firstId] -= 3;
+        if (newCounts[firstId] === 0) delete newCounts[firstId];
+
+        if (decomposeForSanAnko(newCounts, currentAnko + (isAnko ? 1 : 0), baseAnko, winTile)) {
+            return true;
+        }
+    }
+
+    // 尝试 2: 组成顺子 (Shuntsu) - 仅限数牌
+    if (tile.type !== 'honor' && tile.num <= 7) {
+        const id2 = `${tile.num + 1}${tile.suit}`;
+        const id3 = `${tile.num + 2}${tile.suit}`;
+
+        if (counts[id2] && counts[id3]) {
+            const newCounts = { ...counts };
+            newCounts[firstId]--;
+            newCounts[id2]--;
+            newCounts[id3]--;
+            
+            if (newCounts[firstId] === 0) delete newCounts[firstId];
+            if (newCounts[id2] === 0) delete newCounts[id2];
+            if (newCounts[id3] === 0) delete newCounts[id3];
+
+            if (decomposeForSanAnko(newCounts, currentAnko, baseAnko, winTile)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+// 辅助函数：当暗刻数已够时，只检查剩余牌能否分解（不关心是否暗刻）
+function canDecomposeToAnyMentsu(counts) {
+    if (Object.keys(counts).length === 0) return true;
+    const firstId = Object.keys(counts).sort()[0];
+    const tile = getTileById(firstId);
+    const count = counts[firstId];
+
+    // 尝试刻子
+    if (count >= 3) {
+        const newCounts = { ...counts };
+        newCounts[firstId] -= 3;
+        if (newCounts[firstId] === 0) delete newCounts[firstId];
+        if (canDecomposeToAnyMentsu(newCounts)) return true;
+    }
+
+    // 尝试顺子
+    if (tile.type !== 'honor' && tile.num <= 7) {
+        const id2 = `${tile.num + 1}${tile.suit}`;
+        const id3 = `${tile.num + 2}${tile.suit}`;
+        if (counts[id2] && counts[id3]) {
+            const newCounts = { ...counts };
+            newCounts[firstId]--;
+            newCounts[id2]--;
+            newCounts[id3]--;
+            if (newCounts[firstId] === 0) delete newCounts[firstId];
+            if (newCounts[id2] === 0) delete newCounts[id2];
+            if (newCounts[id3] === 0) delete newCounts[id3];
+            if (canDecomposeToAnyMentsu(newCounts)) return true;
+        }
+    }
+    return false;
+}
+
 
 
 
