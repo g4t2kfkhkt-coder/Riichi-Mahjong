@@ -1119,39 +1119,58 @@ function checkSananko(tiles, ankan, winTile) {
   function calculateDoraCount(winTile) {
   let count = 0;
   const indicators = [...state.dora, ...(state.isRiichi ? state.uradora : [])];
+  
+  // 计算宝牌指示牌对应的普通宝牌
   const doraTiles = indicators.map(ind => {
     if (ind.type === 'honor') {
-      const order = ['east','south','west','north','white','rich','red'];
+      const order = ['east', 'south', 'west', 'north', 'white', 'rich', 'red'];
       const idx = order.findIndex(id => id === ind.id);
       return getTileById(order[(idx + 1) % 7]);
     } else {
       const num = ind.num === 9 ? 1 : ind.num + 1;
+      // 只找非红宝牌，因为红宝牌单独计算
       return allTiles.find(t => t.suit === ind.suit && t.num === num && !t.red);
     }
   }).filter(Boolean);
 
-  const fullHandForDora = getAllTiles();
+  // 获取所有牌（包括手牌、副露、暗杠）
+  const allTilesInHand = getAllTiles();
   
-  // 统计红宝牌数量
-  // 雀魂规则：每种花色的5（万/筒/索）只有一张红宝牌
-  // 所以我们需要按花色统计红5，每种花色最多只能有1张红宝牌
+  // 标记已统计的红宝牌花色
+  const redDoraMarked = { m: false, p: false, s: false };
   
-  // 统计手牌中的红5（已选手牌中的红宝牌）
-  const redTilesInHand = {};
-  fullHandForDora.forEach(t => {
+  // 1. 先统计手牌中的红宝牌（包括副露中的红宝牌）
+  allTilesInHand.forEach(t => {
     if (t.red) {
-      // t.red为true表示这是红宝牌
-      // 按花色统计，每种花色最多1个红宝牌
-      if (!redTilesInHand[t.suit]) {
-        redTilesInHand[t.suit] = true;
-        count++; // 每种花色的第一个红5算1番
+      if (!redDoraMarked[t.suit]) {
+        redDoraMarked[t.suit] = true;
+        count++;
       }
-      // 同一花色的后续红5不计番（因为实际牌局中不会出现）
     }
   });
-  
-  // 统计普通宝牌
-  fullHandForDora.forEach(t => {
+
+  // 2. 统计暗杠中的红宝牌
+  // 暗杠的5必然包含红宝牌，无论用户选择的是普通5还是红5
+  state.ankan.forEach(tile => {
+    if (tile.num === 5 && tile.type !== 'honor') {
+      if (!redDoraMarked[tile.suit]) {
+        redDoraMarked[tile.suit] = true;
+        count++;
+      }
+    }
+  });
+
+  // 3. 统计和牌张的红宝牌
+  if (winTile.red) {
+    if (!redDoraMarked[winTile.suit]) {
+      redDoraMarked[winTile.suit] = true;
+      count++;
+    }
+  }
+
+  // 4. 统计普通宝牌（不包括红宝牌）
+  const allTilesForDora = [...allTilesInHand, winTile];
+  allTilesForDora.forEach(t => {
     // 跳过红宝牌，因为已经统计过了
     if (t.red) return;
     
@@ -1159,24 +1178,10 @@ function checkSananko(tiles, ankan, winTile) {
       count++;
     }
   });
-  
-  // 处理和牌张
-  if (winTile.red) {
-    // 和牌张是红宝牌
-    if (!redTilesInHand[winTile.suit]) {
-      // 如果手牌中还没有这个花色的红宝牌，则计数
-      count++;
-    }
-    // 否则已经统计过了，不重复计数
-  } else {
-    // 和牌张不是红宝牌，检查是否是普通宝牌
-    if (doraTiles.some(d => d.id === winTile.id)) {
-      count++;
-    }
-  }
-  
+
   return count;
 }
+
 
 
 
