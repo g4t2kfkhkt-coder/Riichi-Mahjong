@@ -1334,71 +1334,231 @@ function calculateDoraCount(winTile) {
   return count; 
 } 
 
-function calculateFu(winTile, yakuResult) { 
-  if (yakuResult.isYakuman) return 0; 
-  const fullHand = [...getAllTiles(), winTile]; 
-  // 七对子固定 25 符
-  if (isSevenPairs(fullHand)) return 25; 
-  // 检查是否平和
-  const isPinfu = yakuResult.yakuList.some(y => y.name === '平和'); 
-  // 平和直接返回固定符数，不进行后续计算
-  if (isPinfu) { 
-    if (state.winType === 'tsumo') { 
-      return 20; // 平和自摸 20 符
-    } else { 
-      return 30; // 平和荣和 30 符（20 基础 +10 门清荣和）
-    } 
-  } 
-  // 非平和牌型才进行详细符数计算
-  let fu = 20; 
-  const menzen = isMenzen(); 
-  // 门清荣和 +10 符
-  if (menzen && state.winType === 'ron') fu += 10; 
-  // 自摸 +2 符
-  if (state.winType === 'tsumo') fu += 2; 
-  const counts = {}; 
-  fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1); 
-  const pairId = Object.keys(counts).find(id => counts[id] === 2); 
-  if (pairId) { 
-    const pairTile = getTileById(pairId); 
-    if (pairTile) { 
-      if (pairTile.honor === state.fieldWind && pairTile.honor === state.seatWind) fu += 4; 
-      else if (pairTile.honor === state.fieldWind || pairTile.honor === state.seatWind) fu += 2; 
-      else if (pairTile.isSangen) fu += 2; 
-    } 
-  } 
-  const meldCounts = {}; 
-  fullHand.forEach(t => meldCounts[t.id] = (meldCounts[t.id] || 0) + 1); 
-  for (const id in meldCounts) { 
-    const count = meldCounts[id]; 
-    const tile = getTileById(id); 
-    if (!tile) continue; 
-    const isMeld = state.melds.some(m => m.every(t => t.id === id)); 
-    const isAnkan = state.ankan.some(t => t.id === id); 
-    if (count === 3) { 
-      if (isMeld) { 
-        fu += tile.isYaochu ? 4 : 2; 
-      } else { 
-        fu += tile.isYaochu ? 8 : 4; 
-      } 
-    } else if (count === 4) { 
-      if (isAnkan) { 
-        fu += tile.isYaochu ? 32 : 16; 
-      } else { 
-        fu += tile.isYaochu ? 16 : 8; 
-      } 
-    } 
-  } 
-  // 非平和荣和才加听牌符
-  if (state.winType === 'ron') { 
-    if (isKanchanWait(state.hand, winTile) || isPenchanWait(state.hand, winTile) || isTankiWait(state.hand, winTile)) { 
-      fu += 2; 
-    } 
-  } 
-  fu = Math.ceil(fu / 10) * 10; 
-  if (fu < 20) fu = 20; 
-  return fu; 
-} 
+function calculateFu(winTile, yakuResult) {
+    if (yakuResult.isYakuman) return 0;
+    
+    // 1. 基础手牌 + 和牌张
+    const fullHand = [...getAllTiles(), winTile];
+    
+    // 2. 七对子固定 25 符
+    if (isSevenPairs(fullHand)) return 25;
+    
+    // 3. 平和直接返回固定符数
+    const isPinfu = yakuResult.yakuList.some(y => y.name === '平和');
+    if (isPinfu) {
+        if (state.winType === 'tsumo') return 20;
+        else return 30;
+    }
+    
+    // 4. 开始详细计算 (使用递归拆解寻找最小符数)
+    const menzen = isMenzen();
+    const baseFu = 20;
+    const menzenRonFu = (menzen && state.winType === 'ron') ? 10 : 0;
+    const tsumoFu = (state.winType === 'tsumo') ? 2 : 0;
+    
+    // 统计手牌中各牌的数量，用于辅助判断
+    const counts = {};
+    fullHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+
+    // 计算雀头符 (Pair Fu)
+    let pairFu = 0;
+    // 寻找雀头 (这里简化处理，假设拆解函数会处理好雀头，我们单独计算雀头符)
+    // 为了准确，我们在拆解过程中计算雀头符，或者在这里遍历可能的雀头
+    // 由于拆解函数较复杂，我们采用：基础符 + 门清/自摸 + 拆解出的面子符 + 听牌符
+    
+    // 定义拆解函数，返回该拆解下的总符数
+    function decomposeAndCalcFu(tiles, currentFu) {
+        if (tiles.length === 0) {
+            // 所有牌拆解完毕，加上听牌符
+            let waitFu = 0;
+            if (state.winType === 'ron') {
+                // 判断听牌型
+                if (isKanchanWait(state.hand, winTile) || isPenchanWait(state.hand, winTile) || isTankiWait(state.hand, winTile)) {
+                    waitFu = 2;
+                }
+            }
+            return currentFu + waitFu;
+        }
+
+        // 排序以便处理
+        tiles.sort((a, b) => {
+            if (a.suit !== b.suit) return (a.suit || '').localeCompare(b.suit || '');
+            return (a.num || 0) - (b.num || 0);
+        });
+
+        const first = tiles[0];
+        let minFu = 9999;
+
+        // 尝试 1: 作为雀头 (Pair) - 仅在剩余牌数符合 4 组面子 +1 雀头 时尝试
+        // 简单判断：如果剩余牌数 % 3 === 2 (14, 11, 8, 5, 2)，且还没确定雀头，可以尝试
+        // 由于递归较复杂，这里采用策略：优先组面子，最后剩 2 张当雀头
+        // 但为了计算雀头符，我们需要知道哪对是雀头。
+        // 修正策略：外层循环确定雀头，内层递归组面子。
+        return 9999; // 占位，逻辑移至下方主流程
+    }
+
+    // --- 主流程：先确定雀头，再递归组面子 ---
+    const ids = Object.keys(counts);
+    let minTotalFu = 9999;
+
+    // 遍历所有可能的雀头
+    for (let pairId of ids) {
+        if (counts[pairId] < 2) continue;
+
+        // 复制一份手牌用于拆解
+        let tempTiles = [...fullHand];
+        // 移除雀头 (2 张)
+        let removedCount = 0;
+        for (let i = 0; i < tempTiles.length; i++) {
+            if (tempTiles[i].id === pairId && removedCount < 2) {
+                tempTiles[i] = null;
+                removedCount++;
+            }
+        }
+        tempTiles = tempTiles.filter(t => t !== null);
+
+        // 计算雀头符
+        const pairTile = getTileById(pairId);
+        let currentPairFu = 0;
+        if (pairTile) {
+            if (pairTile.honor === state.fieldWind && pairTile.honor === state.seatWind) currentPairFu = 4; // 连风
+            else if (pairTile.honor === state.fieldWind || pairTile.honor === state.seatWind) currentPairFu = 2; // 场风/自风
+            else if (pairTile.isSangen) currentPairFu = 2; // 三元牌
+        }
+
+        // 递归计算面子符
+        const mentsuFu = calculateMentsuFuRecursive(tempTiles, 0);
+        
+        if (mentsuFu !== -1) {
+            const total = baseFu + menzenRonFu + tsumoFu + currentPairFu + mentsuFu;
+            if (total < minTotalFu) {
+                minTotalFu = total;
+            }
+        }
+    }
+
+    if (minTotalFu === 9999) return 20; //  fallback
+
+    // 进位
+    let fu = Math.ceil(minTotalFu / 10) * 10;
+    if (fu < 20) fu = 20;
+    return fu;
+}
+
+// 递归计算面子符数
+function calculateMentsuFuRecursive(tiles, currentFu) {
+    if (tiles.length === 0) return currentFu;
+    if (tiles.length % 3 !== 0) return -1; // 无法整除，失败
+
+    const first = tiles[0];
+    
+    // 尝试 1: 组成刻子/杠子 (Kotsu/Kan)
+    // 统计第一张牌的数量
+    const sameTiles = tiles.filter(t => t.id === first.id);
+    const count = sameTiles.length;
+
+    if (count >= 3) {
+        // 尝试作为刻子 (3 张)
+        // 移除 3 张
+        const restForKotsu = removeSpecificTiles(tiles, first.id, 3);
+        let kotsuFu = 0;
+        
+        // 判断是明刻还是暗刻
+        // 如果是荣和，且手牌中该牌数量 < 3，则视为明刻 (因为和牌张参与了)
+        // 如果是自摸，全算暗刻 (除非是副露的牌，但这里处理的是手牌部分，副露已在 state.melds 处理或视为暗刻)
+        // 注意：这里 tiles 是包含和牌张的完整拆解部分。
+        // 简化判断：如果该牌在 state.melds 中，则是明刻。否则看是否包含和牌张且荣和。
+        
+        const isMelded = state.melds.some(m => m.every(t => t.id === first.id));
+        let isClosed = !isMelded;
+        
+        // 如果是荣和，且这组刻子用到了和牌张，且手牌原本只有 2 张，则是明刻
+        if (state.winType === 'ron' && first.id === winTile.id) {
+            // 检查手牌 (不含和牌张) 中有几张
+            const handCount = state.hand.filter(t => t.id === first.id).length;
+            if (handCount < 3) isClosed = false;
+        }
+
+        if (isClosed) {
+            kotsuFu = first.isYaochu ? 8 : 4;
+        } else {
+            kotsuFu = first.isYaochu ? 4 : 2;
+        }
+
+        const resKotsu = calculateMentsuFuRecursive(restForKotsu, currentFu + kotsuFu);
+        if (resKotsu !== -1 && resKotsu < 9999) {
+             // 如果能组成刻子，记录结果，但还要尝试杠子 (如果数量够 4)
+             // 这里我们取最小值，通常刻子符 < 杠子符，所以优先返回刻子结果
+             // 但为了严谨，我们继续往下看杠子逻辑
+        } else {
+             // 如果刻子路径不通 (比如导致后面无法组牌)，则返回 -1
+        }
+        
+        // 尝试作为杠子 (4 张) - 仅当数量>=4 时
+        if (count >= 4) {
+            const restForKan = removeSpecificTiles(tiles, first.id, 4);
+            let kanFu = 0;
+            const isAnkan = state.ankan.some(t => t.id === first.id);
+            // 如果没有声明暗杠，且荣和用到了第 4 张，则是大明杠
+            let isClosedKan = isAnkan;
+            if (!isAnkan && state.winType === 'ron' && first.id === winTile.id) {
+                 const handCount = state.hand.filter(t => t.id === first.id).length;
+                 if (handCount < 4) isClosedKan = false;
+            }
+
+            if (isClosedKan) {
+                kanFu = first.isYaochu ? 32 : 16;
+            } else {
+                kanFu = first.isYaochu ? 16 : 8;
+            }
+            
+            const resKan = calculateMentsuFuRecursive(restForKan, currentFu + kanFu);
+            if (resKotsu !== -1 && resKan !== -1) {
+                return Math.min(resKotsu, resKan); // 取符数小的 (通常刻子 + 顺子 < 杠子)
+            } else if (resKan !== -1) {
+                return resKan;
+            } else if (resKotsu !== -1) {
+                return resKotsu;
+            }
+        } else {
+            if (resKotsu !== -1) return resKotsu;
+        }
+    }
+
+    // 尝试 2: 组成顺子 (Shuntsu) - 仅数牌
+    if (first.type !== 'honor' && first.num <= 7) {
+        const id2 = `${first.num + 1}${first.suit}`;
+        const id3 = `${first.num + 2}${first.suit}`;
+        
+        const has2 = tiles.some(t => t.id === id2);
+        const has3 = tiles.some(t => t.id === id3);
+        
+        if (has2 && has3) {
+            const restForShuntsu = removeSpecificTiles(tiles, first.id, 1);
+            const rest2 = removeSpecificTiles(restForShuntsu, id2, 1);
+            const rest3 = removeSpecificTiles(rest2, id3, 1);
+            
+            const resShuntsu = calculateMentsuFuRecursive(rest3, currentFu); // 顺子 0 符
+            if (resShuntsu !== -1) return resShuntsu;
+        }
+    }
+
+    return -1; // 无法拆解
+}
+
+// 辅助：移除指定数量的特定牌
+function removeSpecificTiles(tiles, id, count) {
+    const newTiles = [...tiles];
+    let removed = 0;
+    for (let i = 0; i < newTiles.length; i++) {
+        if (newTiles[i].id === id && removed < count) {
+            newTiles[i] = null;
+            removed++;
+        }
+    }
+    return newTiles.filter(t => t !== null);
+}
+
 
 function isKanchanWait(hand, winTile) { 
   const testHand = [...hand, winTile]; 
