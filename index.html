@@ -1224,63 +1224,156 @@
     return counts[winTile.id] === 1;
   }
 
-  function calculatePoints(han, fu, isYakuman, yakumanCount) {
+    function calculatePoints(han, fu, isYakuman, yakumanCount) {
     const dealer = isDealer();
     const isTsumo = state.winType === 'tsumo';
     
-    if (isYakuman) {
-      const count = yakumanCount;
+    // 役满（13 翻以上）
+    if (isYakuman || han >= 13) {
+      const count = isYakuman ? yakumanCount : 1;
       if (isTsumo) {
-        if (dealer) { return { desc: `自摸：${16000 * count} 点 (全员)`, total: 48000 * count }; }
-        else { return { desc: `自摸：${8000 * count}/${16000 * count} 点`, total: 32000 * count }; }
+        if (dealer) { 
+          return { desc: `自摸：${16000 * count} 点 (全员)`, total: 48000 * count }; 
+        } else { 
+          return { desc: `自摸：${8000 * count}/${16000 * count} 点`, total: 32000 * count }; 
+        }
       } else {
         const total = dealer ? 48000 * count : 32000 * count;
         return { desc: `荣和：${total} 点`, total: total };
       }
-    } else {
-      if (han >= 13) {
-        if (isTsumo) {
-          if (dealer) return { desc: `自摸：16000 点 (全员)`, total: 48000 };
-          else return { desc: `自摸：8000/16000 点`, total: 32000 };
-        } else { return { desc: `荣和：${dealer ? 48000 : 32000} 点`, total: dealer ? 48000 : 32000 }; }
-      } else if (han >= 11) {
-        if (isTsumo) {
-          if (dealer) return { desc: `自摸：12000 点 (全员)`, total: 36000 };
-          else return { desc: `自摸：6000/12000 点`, total: 24000 };
-        } else { return { desc: `荣和：${dealer ? 36000 : 24000} 点`, total: dealer ? 36000 : 24000 }; }
-      } else if (han >= 8) {
-        if (isTsumo) {
-          if (dealer) return { desc: `自摸：8000 点 (全员)`, total: 24000 };
-          else return { desc: `自摸：4000/8000 点`, total: 16000 };
-        } else { return { desc: `荣和：${dealer ? 24000 : 16000} 点`, total: dealer ? 24000 : 16000 }; }
-      } else if (han >= 6) {
-        if (isTsumo) {
-          if (dealer) return { desc: `自摸：6000 点 (全员)`, total: 18000 };
-          else return { desc: `自摸：3000/6000 点`, total: 12000 };
-        } else { return { desc: `荣和：${dealer ? 18000 : 12000} 点`, total: dealer ? 18000 : 12000 }; }
-      } else if (han >= 5) {
-        if (isTsumo) {
-          if (dealer) return { desc: `自摸：4000 点 (全员)`, total: 12000 };
-          else return { desc: `自摸：2000/4000 点`, total: 8000 };
-        } else { return { desc: `荣和：${dealer ? 12000 : 8000} 点`, total: dealer ? 12000 : 8000 }; }
-      } else {
-        const base = fu * Math.pow(2, han + 2);
-        if (isTsumo) {
-          if (dealer) {
-            const perPerson = Math.ceil(base * 2 / 100) * 100;
-            return { desc: `自摸：${perPerson} 点 (全员)`, total: perPerson * 3 };
-          } else {
-            const nonDealer = Math.ceil(base / 100) * 100;
-            const dealerPay = Math.ceil(base * 2 / 100) * 100;
-            return { desc: `自摸：${nonDealer}/${dealerPay} 点`, total: nonDealer * 2 + dealerPay };
-          }
+    }
+    
+    // 三倍满（11-12 翻）
+    if (han >= 11) {
+      if (isTsumo) {
+        if (dealer) {
+          return { desc: `自摸：12000 点 (全员)`, total: 36000 };
         } else {
-          const ronPoints = Math.ceil(base * 4 / 100) * 100;
+          return { desc: `自摸：6000/12000 点`, total: 24000 };
+        }
+      } else {
+        return { desc: `荣和：${dealer ? 36000 : 24000} 点`, total: dealer ? 36000 : 24000 };
+      }
+    }
+    
+    // 倍满（8-10 翻）
+    if (han >= 8) {
+      if (isTsumo) {
+        if (dealer) {
+          return { desc: `自摸：8000 点 (全员)`, total: 24000 };
+        } else {
+          return { desc: `自摸：4000/8000 点`, total: 16000 };
+        }
+      } else {
+        return { desc: `荣和：${dealer ? 24000 : 16000} 点`, total: dealer ? 24000 : 16000 };
+      }
+    }
+    
+    // 跳满（6-7 翻）
+    if (han >= 6) {
+      if (isTsumo) {
+        if (dealer) {
+          return { desc: `自摸：6000 点 (全员)`, total: 18000 };
+        } else {
+          return { desc: `自摸：3000/6000 点`, total: 12000 };
+        }
+      } else {
+        return { desc: `荣和：${dealer ? 18000 : 12000} 点`, total: dealer ? 18000 : 12000 };
+      }
+    }
+    
+    // 满贯（5 翻，或 4 翻 40 符以上，或 3 翻 70 符以上）
+    if (han >= 5 || (han === 4 && fu >= 40) || (han === 3 && fu >= 70)) {
+      if (isTsumo) {
+        if (dealer) {
+          return { desc: `自摸：4000 点 (全员)`, total: 12000 };
+        } else {
+          return { desc: `自摸：2000/4000 点`, total: 8000 };
+        }
+      } else {
+        return { desc: `荣和：${dealer ? 12000 : 8000} 点`, total: dealer ? 12000 : 8000 };
+      }
+    }
+    
+    // ===== 严格按照点数表查找（1-4 翻）=====
+    // 亲家点数表（荣和/自摸）
+    const dealerRonTable = {
+      1: { 30: 1500, 40: 2000, 50: 2400, 60: 2900, 70: 3400, 80: 3900, 90: 4400, 100: 4800, 110: 5300 },
+      2: { 25: 2400, 30: 2900, 40: 3900, 50: 4800, 60: 5800, 70: 6800, 80: 7700, 90: 8700, 100: 9600, 110: 10600 },
+      3: { 25: 4800, 30: 5800, 40: 7700, 50: 9600, 60: 11600 },
+      4: { 25: 9600, 30: 11600 }
+    };
+    
+    const dealerTsumoTable = {
+      1: { 30: [500, 500], 40: [700, 700], 50: [800, 800], 60: [1000, 1000], 70: [1200, 1200], 80: [1300, 1300], 90: [1500, 1500], 100: [1600, 1600], 110: [1800, 1800] },
+      2: { 25: [800, 800], 30: [1000, 1000], 40: [1300, 1300], 50: [1600, 1600], 60: [2000, 2000], 70: [2300, 2300], 80: [2600, 2600], 90: [2900, 2900], 100: [3200, 3200], 110: [3600, 3600] },
+      3: { 25: [1600, 1600], 30: [2000, 2000], 40: [2600, 2600], 50: [3200, 3200], 60: [3900, 3900] },
+      4: { 25: [3200, 3200], 30: [3900, 3900] }
+    };
+    
+    // 子家点数表（荣和/自摸）
+    const nonDealerRonTable = {
+      1: { 30: 1000, 40: 1300, 50: 1600, 60: 2000, 70: 2300, 80: 2600, 90: 2900, 100: 3200, 110: 3600 },
+      2: { 25: 1600, 30: 2000, 40: 2600, 50: 3200, 60: 3900, 70: 4500, 80: 5200, 90: 5800, 100: 6400, 110: 7100 },
+      3: { 25: 3200, 30: 3900, 40: 5200, 50: 6400, 60: 7700 },
+      4: { 25: 6400, 30: 7700 }
+    };
+    
+    const nonDealerTsumoTable = {
+      1: { 30: [300, 500], 40: [400, 700], 50: [400, 800], 60: [500, 1000], 70: [600, 1200], 80: [700, 1300], 90: [800, 1500], 100: [800, 1600], 110: [900, 1800] },
+      2: { 25: [400, 700], 30: [500, 1000], 40: [700, 1300], 50: [800, 1600], 60: [1000, 2000], 70: [1200, 2300], 80: [1300, 2600], 90: [1500, 2900], 100: [1600, 3200], 110: [1800, 3600] },
+      3: { 25: [800, 1600], 30: [1000, 2000], 40: [1300, 2600], 50: [1600, 3200], 60: [2000, 3900] },
+      4: { 25: [1600, 3200], 30: [2000, 3900] }
+    };
+    
+    // 处理符数（向上取整到最近的 10）
+    const normalizedFu = Math.ceil(fu / 10) * 10;
+    
+    if (dealer) {
+      // 亲家
+      if (isTsumo) {
+        const tsumoPoints = dealerTsumoTable[han]?.[normalizedFu];
+        if (tsumoPoints) {
+          return { desc: `自摸：${tsumoPoints[0]}/${tsumoPoints[1]} 点`, total: tsumoPoints[0] * 2 + tsumoPoints[1] };
+        }
+      } else {
+        const ronPoints = dealerRonTable[han]?.[normalizedFu];
+        if (ronPoints) {
+          return { desc: `荣和：${ronPoints} 点`, total: ronPoints };
+        }
+      }
+    } else {
+      // 子家
+      if (isTsumo) {
+        const tsumoPoints = nonDealerTsumoTable[han]?.[normalizedFu];
+        if (tsumoPoints) {
+          return { desc: `自摸：${tsumoPoints[0]}/${tsumoPoints[1]} 点`, total: tsumoPoints[0] * 2 + tsumoPoints[1] };
+        }
+      } else {
+        const ronPoints = nonDealerRonTable[han]?.[normalizedFu];
+        if (ronPoints) {
           return { desc: `荣和：${ronPoints} 点`, total: ronPoints };
         }
       }
     }
+    
+    // 如果查表失败，使用公式计算备用
+    const base = fu * Math.pow(2, han + 2);
+    if (isTsumo) {
+      if (dealer) {
+        const perPerson = Math.ceil(base * 2 / 100) * 100;
+        return { desc: `自摸：${perPerson} 点 (全员)`, total: perPerson * 3 };
+      } else {
+        const nonDealer = Math.ceil(base / 100) * 100;
+        const dealerPay = Math.ceil(base * 2 / 100) * 100;
+        return { desc: `自摸：${nonDealer}/${dealerPay} 点`, total: nonDealer * 2 + dealerPay };
+      }
+    } else {
+      const ronPoints = Math.ceil(base * 4 / 100) * 100;
+      return { desc: `荣和：${ronPoints} 点`, total: ronPoints };
+    }
   }
+
 
   function calculate() {
     const totalTiles = getTotalTiles();
