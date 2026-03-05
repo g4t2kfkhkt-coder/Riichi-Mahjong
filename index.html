@@ -1117,30 +1117,56 @@ function checkSananko(tiles, ankan, winTile) {
   }
 
   function calculateDoraCount(winTile) {
-    let count = 0;
-    const indicators = [...state.dora, ...(state.isRiichi ? state.uradora : [])];
-    const doraTiles = indicators.map(ind => {
-      if (ind.type === 'honor') {
-        const order = ['east','south','west','north','white','rich','red'];
-        const idx = order.findIndex(id => id === ind.id);
-        return getTileById(order[(idx + 1) % 7]);
-      } else {
-        const num = ind.num === 9 ? 1 : ind.num + 1;
-        return allTiles.find(t => t.suit === ind.suit && t.num === num && !t.red);
-      }
-    }).filter(Boolean);
-    
-    const fullHandForDora = getAllTiles();
-    fullHandForDora.forEach(t => {
-      if (t.red) count++;
-      if (doraTiles.some(d => d.id === t.id)) count++;
-    });
-    
-    if (winTile.red) count++;
-    if (doraTiles.some(d => d.id === winTile.id)) count++;
-    
-    return count;
+  let count = 0;
+  const indicators = [...state.dora, ...(state.isRiichi ? state.uradora : [])];
+  const doraTiles = indicators.map(ind => {
+    if (ind.type === 'honor') {
+      const order = ['east','south','west','north','white','rich','red'];
+      const idx = order.findIndex(id => id === ind.id);
+      return getTileById(order[(idx + 1) % 7]);
+    } else {
+      const num = ind.num === 9 ? 1 : ind.num + 1;
+      return allTiles.find(t => t.suit === ind.suit && t.num === num && !t.red);
+    }
+  }).filter(Boolean);
+
+  // 获取所有牌（包括手牌、副露、暗杠）
+  const allTilesInHand = getAllTiles();
+  // 添加和牌张
+  const fullHandForDora = [...allTilesInHand, winTile];
+  
+  // 统计红宝牌：每种花色最多1个
+  const redDoraCountBySuit = { m: 0, p: 0, s: 0 };
+  
+  // 首先统计手牌中的红宝牌
+  allTilesInHand.forEach(t => {
+    if (t.red) {
+      redDoraCountBySuit[t.suit] = 1; // 标记该花色有红宝牌
+    }
+  });
+  
+  // 检查和牌张是否为红宝牌
+  if (winTile.red) {
+    redDoraCountBySuit[winTile.suit] = 1;
   }
+  
+  // 计算红宝牌总数
+  const redDoraTotal = Object.values(redDoraCountBySuit).reduce((sum, val) => sum + val, 0);
+  count += redDoraTotal;
+  
+  // 统计普通宝牌
+  fullHandForDora.forEach(t => {
+    // 跳过红宝牌，因为已经统计过了
+    if (t.red) return;
+    
+    if (doraTiles.some(d => d.id === t.id)) {
+      count++;
+    }
+  });
+  
+  return count;
+}
+
 
   // 【修正】符数计算 - 平和荣和 30 符，平和自摸 20 符
     // 【修正】符数计算 - 平和直接返回固定符数
