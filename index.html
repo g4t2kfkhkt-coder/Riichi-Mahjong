@@ -398,6 +398,7 @@
     document.getElementById('chankan').addEventListener('change', (e) => state.chankan = e.target.checked);
   }
 
+  // 【修正】听牌分析 - 使用更完善的面子分解算法
   function analyzeTenpai() {
     const allPossibleTiles = allTiles.filter(t => !t.red);
     const tenpaiTiles = [];
@@ -416,37 +417,74 @@
     return checkMentsuGeneral(tiles);
   }
 
+  // 【修正】面子分解 - 尝试所有可能的雀头
   function checkMentsuGeneral(tiles) {
-    if (tiles.length === 0) return true;
-    const sorted = [...tiles].sort((a, b) => {
-      if (a.suit !== b.suit) return (a.suit || '').localeCompare(b.suit || '');
-      return (a.num || 0) - (b.num || 0);
-    });
-    for (let i = 0; i < sorted.length - 1; i++) {
-      if (sorted[i].id === sorted[i+1].id) {
-        const rest = [...sorted.slice(0, i), ...sorted.slice(i+2)];
-        if (checkMentsuOnly(rest)) return true;
+    const counts = {};
+    tiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    
+    const ids = Object.keys(counts);
+    for (let i = 0; i < ids.length; i++) {
+      const pairId = ids[i];
+      if (counts[pairId] >= 2) {
+        // 尝试以这张牌为雀头
+        let tempTiles = [...tiles];
+        let removed = 0;
+        for(let k = 0; k < tempTiles.length; k++) {
+          if(tempTiles[k].id === pairId && removed < 2) {
+            tempTiles[k] = null;
+            removed++;
+          }
+        }
+        tempTiles = tempTiles.filter(t => t !== null);
+        
+        // 检查剩余 12 张能否分解为 4 组面子
+        if (canDecomposeTo4Mentsu(tempTiles)) {
+          return true;
+        }
       }
     }
     return false;
   }
 
-  function checkMentsuOnly(tiles) {
+  // 【修正】尝试将 12 张牌分解为 4 组面子（刻子或顺子）
+  function canDecomposeTo4Mentsu(tiles) {
     if (tiles.length === 0) return true;
-    const first = tiles[0];
-    const same = tiles.filter(t => t.id === first.id);
+    if (tiles.length % 3 !== 0) return false;
+
+    const sorted = [...tiles].sort((a, b) => {
+      if (a.suit !== b.suit) return (a.suit || '').localeCompare(b.suit || '');
+      return (a.num || 0) - (b.num || 0);
+    });
+
+    const first = sorted[0];
+    
+    // 尝试刻子
+    const same = sorted.filter(t => t.id === first.id);
     if (same.length >= 3) {
-      const rest = removeTiles(tiles, [first.id, first.id, first.id]);
-      if (checkMentsuOnly(rest)) return true;
+      const rest = removeTiles(sorted, [first.id, first.id, first.id]);
+      if (canDecomposeTo4Mentsu(rest)) return true;
     }
+    
+    // 尝试顺子（仅数牌）
     if (first.type !== 'honor') {
       const id2 = `${first.num+1}${first.suit}`;
       const id3 = `${first.num+2}${first.suit}`;
-      if (tiles.some(t => t.id === id2) && tiles.some(t => t.id === id3)) {
-        const rest = removeTiles(tiles, [first.id, id2, id3]);
-        if (checkMentsuOnly(rest)) return true;
+      
+      const idx2 = sorted.findIndex(t => t.id === id2);
+      const idx3 = sorted.findIndex(t => t.id === id3);
+      
+      if (idx2 > 0 && idx3 > 0) {
+        const rest = [...sorted];
+        rest.splice(0, 1);
+        const realIdx3 = rest.findIndex(t => t.id === id3);
+        rest.splice(realIdx3, 1);
+        const realIdx2 = rest.findIndex(t => t.id === id2);
+        rest.splice(realIdx2, 1);
+        
+        if (canDecomposeTo4Mentsu(rest)) return true;
       }
     }
+
     return false;
   }
 
