@@ -4,6 +4,7 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>雀魂规则 - 立直麻将听牌与点数计算器 (最终修正版)</title>
+    <link rel="icon" href="data:,">
     <style>
         *{box-sizing:border-box;margin:0;padding:0;font-family:"Microsoft YaHei",sans-serif}
         body{background-color:#f0f0f0;padding:20px}
@@ -50,6 +51,9 @@
         .wind-btn.active{background-color:#3498db;color:white;border-color:#2980b9}
         .calc-type{margin:20px 0;display:flex;gap:15px;flex-wrap:wrap;align-items:center}
         .calc-type label{font-size:16px;cursor:pointer;display:flex;align-items:center;gap:5px}
+        .config-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:15px}
+        .config-grid label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#2c3e50}
+        .config-grid input{padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px}
         .muted{color:#888;font-size:12px}
         .dealer-indicator{display:inline-block;padding:4px 12px;border-radius:4px;font-size:12px;font-weight:bold;margin-left:10px}
         .dealer-indicator.dealer{background-color:#f1c40f;color:#fff}
@@ -93,11 +97,23 @@
             <label><input type="radio" name="winType" value="tsumo" checked> 自摸和</label>
             <label><input type="radio" name="winType" value="ron"> 荣和</label>
             <label><input type="checkbox" id="riichi" checked> 立直（门清限定）</label>
+            <label><input type="checkbox" id="doubleRiichi"> 双立直（门清限定）</label>
             <label><input type="checkbox" id="ippatsu"> 一发</label>
             <label><input type="checkbox" id="haitei"> 海底/河底</label>
             <label><input type="checkbox" id="houtei"> 岭上开花</label>
             <label><input type="checkbox" id="chankan"> 抢杠</label>
+            <label><input type="checkbox" id="tenhou"> 天和（亲家自摸）</label>
+            <label><input type="checkbox" id="chiihou"> 地和（子家自摸）</label>
         </div>
+        <div class="config-grid">
+            <label>本场数
+                <input type="number" id="honbaCount" min="0" value="0"/>
+            </label>
+            <label>供托数（立直棒）
+                <input type="number" id="kyotakuCount" min="0" value="0"/>
+            </label>
+        </div>
+        <div class="muted" style="margin-top:10px;">说明：本场会影响支付点数，供托会加到和牌者总收入；宝牌不能单独构成和牌役。</div>
     </div>
 
     <div class="section">
@@ -163,10 +179,170 @@ const allTiles = [
     {id:'white',name:'白',type:'honor',honor:'haku',isKaze:false,isSangen:true,isYaochu:true}, {id:'rich',name:'發',type:'honor',honor:'hatsu',isKaze:false,isSangen:true,isYaochu:true}, {id:'red',name:'中',type:'honor',honor:'chun',isKaze:false,isSangen:true,isYaochu:true}
 ];
 
-let state = { fieldWind:'east', seatWind:'east', hand:[], melds:[], ankan:[], dora:[], uradora:[], winType:'tsumo', isRiichi:true, ippatsu:false, haitei:false, houtei:false, chankan:false };
+const PERSISTED_STATE_KEY='riichi-mahjong-state-v1';
+const windValues=['east','south','west','north'];
+const winTypeValues=['tsumo','ron'];
+const defaultState={ fieldWind:'east', seatWind:'east', hand:[], melds:[], ankan:[], dora:[], uradora:[], winType:'tsumo', isRiichi:true, isDoubleRiichi:false, ippatsu:false, haitei:false, houtei:false, chankan:false, tenhou:false, chiihou:false, honbaCount:0, kyotakuCount:0 };
+let isRestoringState=false;
+
+function createDefaultState(){return { ...defaultState, hand:[], melds:[], ankan:[], dora:[], uradora:[] };}
+let state = createDefaultState();
+
+function getStorage(){
+    try{return typeof localStorage==='undefined'?null:localStorage;}
+    catch(error){return null;}
+}
+function getSafeBoolean(value,fallback=false){return typeof value==='boolean'?value:fallback;}
+function getSafeNumber(value,fallback=0){
+    const parsed=parseInt(value,10);
+    return Number.isFinite(parsed)&&parsed>=0?parsed:fallback;
+}
+function tileIdsToTiles(tileIds){
+    if(!Array.isArray(tileIds))return [];
+    return tileIds.map(getTileById).filter(Boolean);
+}
+function serializeState(){
+    return {
+        fieldWind:state.fieldWind,
+        seatWind:state.seatWind,
+        hand:state.hand.map(tile=>tile.id),
+        melds:state.melds.map(group=>group.map(tile=>tile.id)),
+        ankan:state.ankan.map(tile=>tile.id),
+        dora:state.dora.map(tile=>tile.id),
+        uradora:state.uradora.map(tile=>tile.id),
+        winType:state.winType,
+        isRiichi:state.isRiichi,
+        isDoubleRiichi:state.isDoubleRiichi,
+        ippatsu:state.ippatsu,
+        haitei:state.haitei,
+        houtei:state.houtei,
+        chankan:state.chankan,
+        tenhou:state.tenhou,
+        chiihou:state.chiihou,
+        honbaCount:state.honbaCount,
+        kyotakuCount:state.kyotakuCount,
+    };
+}
+function hydrateState(savedState){
+    const nextState=createDefaultState();
+    if(savedState&&typeof savedState==='object'){
+        if(windValues.includes(savedState.fieldWind))nextState.fieldWind=savedState.fieldWind;
+        if(windValues.includes(savedState.seatWind))nextState.seatWind=savedState.seatWind;
+        if(winTypeValues.includes(savedState.winType))nextState.winType=savedState.winType;
+        nextState.hand=tileIdsToTiles(savedState.hand);
+        nextState.melds=Array.isArray(savedState.melds)?savedState.melds.map(group=>tileIdsToTiles(group)).filter(group=>group.length>0):[];
+        nextState.ankan=tileIdsToTiles(savedState.ankan);
+        nextState.dora=tileIdsToTiles(savedState.dora);
+        nextState.uradora=tileIdsToTiles(savedState.uradora);
+        nextState.isRiichi=getSafeBoolean(savedState.isRiichi,defaultState.isRiichi);
+        nextState.isDoubleRiichi=getSafeBoolean(savedState.isDoubleRiichi,defaultState.isDoubleRiichi);
+        nextState.ippatsu=getSafeBoolean(savedState.ippatsu,defaultState.ippatsu);
+        nextState.haitei=getSafeBoolean(savedState.haitei,defaultState.haitei);
+        nextState.houtei=getSafeBoolean(savedState.houtei,defaultState.houtei);
+        nextState.chankan=getSafeBoolean(savedState.chankan,defaultState.chankan);
+        nextState.tenhou=getSafeBoolean(savedState.tenhou,defaultState.tenhou);
+        nextState.chiihou=getSafeBoolean(savedState.chiihou,defaultState.chiihou);
+        nextState.honbaCount=getSafeNumber(savedState.honbaCount,defaultState.honbaCount);
+        nextState.kyotakuCount=getSafeNumber(savedState.kyotakuCount,defaultState.kyotakuCount);
+    }
+    state=nextState;
+}
+function savePersistedState(){
+    if(isRestoringState)return;
+    const storage=getStorage();
+    if(!storage)return;
+    try{storage.setItem(PERSISTED_STATE_KEY,JSON.stringify(serializeState()));}
+    catch(error){console.warn('????????',error);}
+}
+function loadPersistedState(){
+    const storage=getStorage();
+    if(!storage)return false;
+    const raw=storage.getItem(PERSISTED_STATE_KEY);
+    if(!raw)return false;
+    try{
+        isRestoringState=true;
+        hydrateState(JSON.parse(raw));
+        return true;
+    }catch(error){
+        console.warn('?????????????????',error);
+        storage.removeItem(PERSISTED_STATE_KEY);
+        hydrateState(null);
+        return false;
+    }finally{
+        isRestoringState=false;
+    }
+}
 
 function isDealer(){return state.seatWind==='east';}
 function tileToSvg(tile){return `./svg/${encodeURIComponent(tile.id)}.svg`;}
+function normalizeTileId(tileOrId){
+    if(!tileOrId)return tileOrId;
+    if(typeof tileOrId==='string'){
+        if(tileOrId.length===2&&tileOrId[0]==='0'&&['m','p','s'].includes(tileOrId[1]))return `5${tileOrId[1]}`;
+        return tileOrId;
+    }
+    if(tileOrId.red&&tileOrId.num===5)return `5${tileOrId.suit}`;
+    return tileOrId.id;
+}
+function normalizeTile(tile){return getTileById(normalizeTileId(tile));}
+function normalizeTiles(tiles){return tiles.map(normalizeTile);}
+function countTilesById(tiles){const counts={};normalizeTiles(tiles).forEach(t=>counts[t.id]=(counts[t.id]||0)+1);return counts;}
+function countsEqual(a,b){
+    const keys=new Set([...Object.keys(a),...Object.keys(b)]);
+    for(const key of keys){if((a[key]||0)!==(b[key]||0))return false;}
+    return true;
+}
+function isOpenMentsu(mentsu){
+    if(mentsu.type==='kotsu'){
+        return state.melds.some(m=>m.length>=3&&m.every(t=>normalizeTileId(t)===mentsu.id));
+    }
+    if(mentsu.type==='shuntsu'){
+        const target=[...mentsu.ids].sort();
+        return state.melds.some(m=>m.length===3&&[...m.map(normalizeTileId)].sort().every((id,index)=>id===target[index]));
+    }
+    return false;
+}
+function isDeclaredAnkanMentsu(mentsu){return mentsu.type==='kotsu'&&state.ankan.some(t=>normalizeTileId(t)===mentsu.id);}
+function getHandDecompositions(tiles){
+    const counts={};
+    normalizeTiles(tiles).forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
+    const decompositions=[];
+    for(const pairId of Object.keys(counts)){
+        if(counts[pairId]<2)continue;
+        const tempCounts={...counts};
+        tempCounts[pairId]-=2;
+        if(tempCounts[pairId]===0)delete tempCounts[pairId];
+        const mentsuOptions=decomposeToMentsu(tempCounts,[]);
+        mentsuOptions.forEach(mentsuList=>decompositions.push({pairId,mentsuList}));
+    }
+    return decompositions;
+}
+function getWaitTypesForDecomposition(pairId, mentsuList, winTile){
+    const waitTypes=new Set();
+    const normalizedWinTile=normalizeTile(winTile);
+    const winId=normalizedWinTile.id;
+    if(pairId===winId)waitTypes.add('tanki');
+    for(const mentsu of mentsuList){
+        if(mentsu.type!=='shuntsu'||isOpenMentsu(mentsu))continue;
+        if(!mentsu.ids.includes(winId))continue;
+        const startTile=getTileById(mentsu.ids[0]);
+        if(!startTile)continue;
+        if(normalizedWinTile.num===startTile.num+1)waitTypes.add('kanchan');
+        else if(startTile.num===1&&normalizedWinTile.num===3)waitTypes.add('penchan');
+        else if(startTile.num===7&&normalizedWinTile.num===7)waitTypes.add('penchan');
+        else waitTypes.add('ryanmen');
+    }
+    return waitTypes;
+}
+function checkSuushi(tiles){
+    const counts=countTilesById(tiles);
+    const windIds=['east','south','west','north'];
+    const kotsuCount=windIds.filter(id=>(counts[id]||0)>=3).length;
+    const hasPair=windIds.some(id=>(counts[id]||0)===2);
+    if(kotsuCount===4)return 2;
+    if(kotsuCount===3&&hasPair)return 1;
+    return 0;
+}
 
 // 修改：渲染可点击删除的牌
 function renderInlineTiles(tiles, onClickCallback, isGroupClick = false) {
@@ -187,6 +363,43 @@ function getTotalTiles(){let total=state.hand.length;state.melds.forEach(m=>{tot
 function getAllTiles(){let tiles=[...state.hand];state.melds.forEach(m=>{tiles=tiles.concat(m);});state.ankan.forEach(t=>{tiles=tiles.concat([t,t,t,t]);});return tiles;}
 function getTilesForTenpai(){let tiles=[...state.hand];state.melds.forEach(m=>{if(m.length===4){tiles=tiles.concat([m[0],m[0],m[0]]);}else{tiles=tiles.concat(m);}});state.ankan.forEach(t=>{tiles=tiles.concat([t,t,t]);});return tiles;}
 function updateDealerIndicator(){const indicator=document.getElementById('dealerIndicator');if(isDealer()){indicator.className='dealer-indicator dealer';indicator.textContent='庄家 (亲)';}else{indicator.className='dealer-indicator non-dealer';indicator.textContent='闲家 (子)';}}
+function syncSpecialOptions(showAlert=false){
+    const notes=[];
+    if(state.isDoubleRiichi){
+        if(!isMenzen()){state.isDoubleRiichi=false;notes.push('双立直为门清限定，已自动取消');}
+        state.isRiichi=true;
+    }
+    if(state.isRiichi&&!isMenzen()){
+        state.isRiichi=false;
+        state.isDoubleRiichi=false;
+        notes.push('立直为门清限定，已自动取消');
+    }
+    if(state.ippatsu&&!state.isRiichi&&!state.isDoubleRiichi){state.ippatsu=false;notes.push('一发需在立直/双立直状态下，已自动取消');}
+    if(state.tenhou){
+        state.chiihou=false;
+        if(state.winType!=='tsumo')notes.push('天和仅限自摸，已自动切换为自摸');
+        state.winType='tsumo';
+        if(!isDealer()){state.tenhou=false;notes.push('天和仅限庄家，已自动取消');}
+        if(!isMenzen()||state.ankan.length>0){state.tenhou=false;notes.push('天和仅限无副露无杠的门清手，已自动取消');}
+    }
+    if(state.chiihou){
+        state.tenhou=false;
+        if(state.winType!=='tsumo')notes.push('地和仅限自摸，已自动切换为自摸');
+        state.winType='tsumo';
+        if(isDealer()){state.chiihou=false;notes.push('地和仅限闲家，已自动取消');}
+        if(!isMenzen()||state.ankan.length>0){state.chiihou=false;notes.push('地和仅限无副露无杠的门清手，已自动取消');}
+    }
+    if(state.houtei&&state.winType!=='tsumo'){state.houtei=false;notes.push('岭上开花仅限自摸，已自动取消');}
+    if(state.chankan&&state.winType==='tsumo'){state.chankan=false;notes.push('抢杠仅限荣和，已自动取消');}
+    if(state.haitei&&state.houtei){state.houtei=false;notes.push('海底/河底与岭上开花不能同时成立，已自动取消岭上开花');}
+    if(state.haitei&&state.chankan&&state.winType==='ron'){state.chankan=false;notes.push('河底与抢杠不能同时成立，已自动取消抢杠');}
+    if(showAlert&&notes.length)alert(notes.join('\n'));
+    const radio=document.querySelector(`input[name="winType"][value="${state.winType}"]`);if(radio)radio.checked=true;
+    [['riichi',state.isRiichi],['doubleRiichi',state.isDoubleRiichi],['ippatsu',state.ippatsu],['haitei',state.haitei],['houtei',state.houtei],['chankan',state.chankan],['tenhou',state.tenhou],['chiihou',state.chiihou]].forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.checked=value;});
+    const honbaInput=document.getElementById('honbaCount');if(honbaInput)honbaInput.value=state.honbaCount;
+    const kyotakuInput=document.getElementById('kyotakuCount');if(kyotakuInput)kyotakuInput.value=state.kyotakuCount;
+    savePersistedState();
+}
 function checkTileCount(tiles){const counts={};for(const t of tiles){counts[t.id]=(counts[t.id]||0)+1;if(counts[t.id]>4){return{valid:false,message:`${t.name} 超过 4 张！`};}}return{valid:true};}
 function validateMeld(tiles){if(tiles.length<3||tiles.length>4){return{valid:false,message:'副露必须是 3 张或 4 张牌'};}const allSame=tiles.every(t=>t.id===tiles[0].id);if(allSame){if(tiles.length===3){return{valid:true,type:'碰'};}else if(tiles.length===4){return{valid:true,type:'大明杠'};}}if(tiles.length===3){if(tiles.some(t=>t.type==='honor')){return{valid:false,message:'吃只能是数牌（万/筒/索）'};}const suits=new Set(tiles.map(t=>t.suit));if(suits.size!==1){return{valid:false,message:'吃必须是同花色的牌'};}const nums=tiles.map(t=>t.num).sort((a,b)=>a-b);if(nums[0]+1===nums[1]&&nums[1]+1===nums[2]){return{valid:true,type:'吃'};}return{valid:false,message:'吃必须是连续的 3 张牌（如 234 万）'};}if(tiles.length===4&&!allSame){return{valid:false,message:'4 张牌的副露只能是大明杠（4 张相同牌）'};}return{valid:false,message:'无效的副露牌型'};}
 
@@ -223,11 +436,10 @@ function addToHand(tile){
 }
 
 function updateHandDisplay(){
-    // 修改：传入删除函数名
     document.getElementById('handDisplay').innerHTML='已选手牌 (点击删除): '+renderInlineTiles(state.hand, 'removeFromHand');
+    savePersistedState();
 }
 
-// 全局函数：从手牌删除
 window.removeFromHand = function(index) {
     state.hand.splice(index, 1);
     updateHandDisplay();
@@ -249,7 +461,7 @@ function addMeld(){
     state.melds.push([...selectedForMeld]);
     selectedForMeld=[];
     updateMeldArea();
-    if(state.isRiichi){state.isRiichi=false;document.getElementById('riichi').checked=false;alert('立直为门清限定！已自动取消');}
+    syncSpecialOptions(true);
 }
 
 function updateMeldArea(){
@@ -257,17 +469,17 @@ function updateMeldArea(){
     const meldsHtml=state.melds.map((m, idx) => {
         const validation=validateMeld(m);
         const type=validation.valid?validation.type:'未知';
-        // 修改：传入删除函数名和索引，isGroupClick=true 表示点击删除整组
         return `<div style="border:1px solid #ddd;padding:2px 5px;border-radius:4px;margin-right:5px;background:white;">${renderInlineTiles(m, 'removeMeld', true)} <span style="font-size:12px;color:#666">(${type})</span></div>`;
     }).join('')||'(无)';
     const curHtml=renderInlineTiles(selectedForMeld)||'(无)';
     display.innerHTML=`<div style="display:flex;flex-wrap:wrap;align-items:center;"><b>已选副露 (点击删除整组)：</b>${meldsHtml}</div><div style="margin-top:6px;"><b>当前选择：</b>${curHtml}（${selectedForMeld.length}张）</div>`;
+    savePersistedState();
 }
 
-// 全局函数：删除副露组
 window.removeMeld = function(index) {
     state.melds.splice(index, 1);
     updateMeldArea();
+    syncSpecialOptions();
 }
 
 let selectedForAnkan=null;
@@ -285,25 +497,25 @@ function addAnkan(){
     state.ankan.push(selectedForAnkan);
     selectedForAnkan=null;
     updateAnkanDisplay();
+    syncSpecialOptions();
 }
 
 function updateAnkanDisplay(){
-    // 修改：传入删除函数名
     document.getElementById('ankanDisplay').innerHTML=`<b>已选暗杠 (点击删除)：</b>${renderInlineTiles(state.ankan, 'removeAnkan', true)||'(无)'}`;
+    savePersistedState();
 }
 
-// 全局函数：删除暗杠
 window.removeAnkan = function(index) {
     state.ankan.splice(index, 1);
     updateAnkanDisplay();
+    syncSpecialOptions();
 }
 
 function addToDora(tile){state.dora.push(tile);updateDoraDisplay();}
 function updateDoraDisplay(){
-    // 修改：传入删除函数名
     document.getElementById('doraDisplay').innerHTML='已选宝牌 (点击删除): '+renderInlineTiles(state.dora, 'removeDora');
+    savePersistedState();
 }
-// 全局函数：删除宝牌
 window.removeDora = function(index) {
     state.dora.splice(index, 1);
     updateDoraDisplay();
@@ -311,10 +523,9 @@ window.removeDora = function(index) {
 
 function addToUradora(tile){state.uradora.push(tile);updateUradoraDisplay();}
 function updateUradoraDisplay(){
-    // 修改：传入删除函数名
     document.getElementById('uradoraDisplay').innerHTML='已选里宝牌 (点击删除): '+renderInlineTiles(state.uradora, 'removeUradora');
+    savePersistedState();
 }
-// 全局函数：删除里宝牌
 window.removeUradora = function(index) {
     state.uradora.splice(index, 1);
     updateUradoraDisplay();
@@ -322,17 +533,23 @@ window.removeUradora = function(index) {
 
 function initWindSelectors(){
     const setWindActive=(container,wind)=>{container.querySelectorAll('.wind-btn').forEach(b=>b.classList.toggle('active',b.dataset.wind===wind));};
-    document.getElementById('fieldWind').addEventListener('click',(e)=>{if(e.target.classList.contains('wind-btn')){state.fieldWind=e.target.dataset.wind;setWindActive(e.target.parentElement,state.fieldWind);}});
-    document.getElementById('seatWind').addEventListener('click',(e)=>{if(e.target.classList.contains('wind-btn')){state.seatWind=e.target.dataset.wind;setWindActive(e.target.parentElement,state.seatWind);updateDealerIndicator();}});
-    setWindActive(document.getElementById('fieldWind'),'east');
-    setWindActive(document.getElementById('seatWind'),'east');
+    document.getElementById('fieldWind').addEventListener('click',(e)=>{if(e.target.classList.contains('wind-btn')){state.fieldWind=e.target.dataset.wind;setWindActive(e.target.parentElement,state.fieldWind);savePersistedState();}});
+    document.getElementById('seatWind').addEventListener('click',(e)=>{if(e.target.classList.contains('wind-btn')){state.seatWind=e.target.dataset.wind;setWindActive(e.target.parentElement,state.seatWind);updateDealerIndicator();syncSpecialOptions();}});
+    setWindActive(document.getElementById('fieldWind'),state.fieldWind);
+    setWindActive(document.getElementById('seatWind'),state.seatWind);
     updateDealerIndicator();
-    document.querySelectorAll('input[name="winType"]').forEach(radio=>{radio.addEventListener('change',(e)=>state.winType=e.target.value);});
-    document.getElementById('riichi').addEventListener('change',(e)=>{state.isRiichi=e.target.checked;if(state.isRiichi&&!isMenzen()){alert('立直为门清限定！');e.target.checked=false;state.isRiichi=false;}});
-    document.getElementById('ippatsu').addEventListener('change',(e)=>state.ippatsu=e.target.checked);
-    document.getElementById('haitei').addEventListener('change',(e)=>state.haitei=e.target.checked);
-    document.getElementById('houtei').addEventListener('change',(e)=>state.houtei=e.target.checked);
-    document.getElementById('chankan').addEventListener('change',(e)=>state.chankan=e.target.checked);
+    document.querySelectorAll('input[name="winType"]').forEach(radio=>{radio.addEventListener('change',(e)=>{state.winType=e.target.value;syncSpecialOptions(true);});});
+    document.getElementById('riichi').addEventListener('change',(e)=>{state.isRiichi=e.target.checked;if(!state.isRiichi)state.isDoubleRiichi=false;syncSpecialOptions(true);});
+    document.getElementById('doubleRiichi').addEventListener('change',(e)=>{state.isDoubleRiichi=e.target.checked;syncSpecialOptions(true);});
+    document.getElementById('ippatsu').addEventListener('change',(e)=>{state.ippatsu=e.target.checked;syncSpecialOptions(true);});
+    document.getElementById('haitei').addEventListener('change',(e)=>{state.haitei=e.target.checked;syncSpecialOptions(true);});
+    document.getElementById('houtei').addEventListener('change',(e)=>{state.houtei=e.target.checked;syncSpecialOptions(true);});
+    document.getElementById('chankan').addEventListener('change',(e)=>{state.chankan=e.target.checked;syncSpecialOptions(true);});
+    document.getElementById('tenhou').addEventListener('change',(e)=>{state.tenhou=e.target.checked;syncSpecialOptions(true);});
+    document.getElementById('chiihou').addEventListener('change',(e)=>{state.chiihou=e.target.checked;syncSpecialOptions(true);});
+    document.getElementById('honbaCount').addEventListener('input',(e)=>{state.honbaCount=Math.max(0,parseInt(e.target.value||'0',10)||0);syncSpecialOptions();});
+    document.getElementById('kyotakuCount').addEventListener('input',(e)=>{state.kyotakuCount=Math.max(0,parseInt(e.target.value||'0',10)||0);syncSpecialOptions();});
+    syncSpecialOptions();
 }
 
 function initTileStock() {
@@ -419,14 +636,14 @@ function removeTiles(tiles,ids){
 
 function isSevenPairs(tiles){
     if(tiles.length!==14)return false;
-    const count={};tiles.forEach(t=>count[t.id]=(count[t.id]||0)+1);
+    const count=countTilesById(tiles);
     return Object.values(count).filter(c=>c===2).length===7;
 }
 
 function isKokushiMusou(tiles){
     if(tiles.length!==14)return false;
     const yaochuuIds=allTiles.filter(t=>t.isYaochu).map(t=>t.id);
-    const unique=new Set(tiles.map(t=>t.id));
+    const unique=new Set(normalizeTiles(tiles).map(t=>t.id));
     if(unique.size!==13)return false;
     return yaochuuIds.every(id=>unique.has(id));
 }
@@ -449,7 +666,7 @@ function analyzeTenpai() {
 // ===== 役种计算逻辑 =====
 function checkSuuAnkou(fullHand,winTile){
     if(!isMenzen())return false;
-    const counts={};fullHand.forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
+    const counts=countTilesById(fullHand);
     const decomposition=decomposeHandForSuuAnkou(fullHand);
     if(!decomposition)return false;
     if(decomposition.kotsu===4&&decomposition.shuntsu===0&&decomposition.pair===1){
@@ -495,23 +712,13 @@ function canDecomposeTo4Kotsu(tiles,kotsu,shuntsu,pair){
 }
 
 function checkPinfu(tiles,winTile){
-    const counts={};tiles.forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
-    const ids=Object.keys(counts);
-    for(let i=0;i<ids.length;i++){
-        const pairId=ids[i];
-        if(counts[pairId]>=2){
-            const pairTile=getTileById(pairId);
-            if(pairTile.type==='honor')continue;
-            if(pairTile.honor===state.fieldWind||pairTile.honor===state.seatWind||pairTile.isSangen){continue;}
-            let tempTiles=[...tiles];
-            let removed=0;
-            for(let k=0;k<tempTiles.length;k++){
-                if(tempTiles[k].id===pairId&&removed<2){tempTiles[k]=null;removed++;}
-            }
-            tempTiles=tempTiles.filter(t=>t!==null);
-            if(canDecomposeTo4Shuntsu(tempTiles)){
-                if(isRyanmenWaitShape(tiles,winTile)){return true;}
-            }
+    const decompositions=getHandDecompositions(tiles);
+    for(const {pairId,mentsuList} of decompositions){
+        const pairTile=getTileById(pairId);
+        if(pairTile&&(pairTile.honor===state.fieldWind||pairTile.honor===state.seatWind||pairTile.isSangen))continue;
+        if(mentsuList.every(mentsu=>mentsu.type==='shuntsu')){
+            const waitTypes=getWaitTypesForDecomposition(pairId,mentsuList,winTile);
+            if(waitTypes.has('ryanmen'))return true;
         }
     }
     return false;
@@ -563,7 +770,8 @@ function isRyanmenWaitShape(fullHand,winTile){
 }
 
 function calculateYaku(hand,winTile){
-    const fullHand=[...getAllTiles(),winTile];
+    const normalizedWinTile=normalizeTile(winTile);
+    const fullHand=normalizeTiles([...getTilesForTenpai(),normalizedWinTile]);
     const yakuList=[];
     let isYakuman=false;
     let yakumanCount=0;
@@ -583,9 +791,16 @@ function calculateYaku(hand,winTile){
             }
         }
     }
-    if(checkSuuAnkou(fullHand,winTile)){
-        yakuList.push({name:'四暗刻',han:13,isYakuman:true});
-        isYakuman=true;yakumanCount+=1;
+    if(checkSuuAnkou(fullHand,normalizedWinTile)){
+        const normalizedHand=normalizeTiles(state.hand);
+        const isSuuAnkouTanki=normalizedHand.filter(t=>t.id===normalizedWinTile.id).length===1;
+        if(isSuuAnkouTanki){
+            yakuList.push({name:'四暗刻单骑',han:26,isYakuman:true});
+            isYakuman=true;yakumanCount+=2;
+        }else{
+            yakuList.push({name:'四暗刻',han:13,isYakuman:true});
+            isYakuman=true;yakumanCount+=1;
+        }
     }
     const sangenCounts={'white':0,'rich':0,'red':0};
     fullHand.forEach(t=>{
@@ -598,14 +813,23 @@ function calculateYaku(hand,winTile){
         isYakuman=true;yakumanCount+=1;
     }
     if(isKokushiMusou(fullHand)){
-        const uniqueIds=new Set(fullHand.map(t=>t.id));
-        if(uniqueIds.size===14){
+        const normalizedHand=normalizeTiles(state.hand);
+        const uniqueIds=new Set(normalizedHand.map(t=>t.id));
+        if(isMenzen()&&state.melds.length===0&&state.ankan.length===0&&normalizedHand.length===13&&uniqueIds.size===13){
             yakuList.push({name:'国士无双十三面',han:26,isYakuman:true});
             isYakuman=true;yakumanCount+=2;
         }else{
             yakuList.push({name:'国士无双',han:13,isYakuman:true});
             isYakuman=true;yakumanCount+=1;
         }
+    }
+    const suushiType=checkSuushi(fullHand);
+    if(suushiType===2){
+        yakuList.push({name:'大四喜',han:26,isYakuman:true});
+        isYakuman=true;yakumanCount+=2;
+    }else if(suushiType===1){
+        yakuList.push({name:'小四喜',han:13,isYakuman:true});
+        isYakuman=true;yakumanCount+=1;
     }
     const kanCount=state.melds.filter(m=>m.length===4).length+state.ankan.length;
     if(kanCount>=4){
@@ -622,12 +846,23 @@ function calculateYaku(hand,winTile){
     }
     const greenTiles=['2s','3s','4s','6s','8s','rich'];
     if(fullHand.every(t=>greenTiles.includes(t.id))){
-        yakuList.push({name:'绿一色',han:13,isYakuman:true});
+        yakuList.push({name:'???',han:13,isYakuman:true});
+        isYakuman=true;yakumanCount+=1;
+    }
+    if(state.tenhou&&menzen&&state.winType==='tsumo'&&isDealer()&&state.melds.length===0&&state.ankan.length===0){
+        yakuList.push({name:'天和',han:13,isYakuman:true});
+        isYakuman=true;yakumanCount+=1;
+    }
+    if(state.chiihou&&menzen&&state.winType==='tsumo'&&!isDealer()&&state.melds.length===0&&state.ankan.length===0){
+        yakuList.push({name:'地和',han:13,isYakuman:true});
         isYakuman=true;yakumanCount+=1;
     }
 
     if(!isYakuman){
-        if(state.isRiichi&&menzen){
+        if(state.isDoubleRiichi&&menzen){
+            yakuList.push({name:'双立直',han:2});
+            if(state.ippatsu)yakuList.push({name:'一发',han:1});
+        }else if(state.isRiichi&&menzen){
             yakuList.push({name:'立直',han:1});
             if(state.ippatsu)yakuList.push({name:'一发',han:1});
         }
@@ -636,7 +871,7 @@ function calculateYaku(hand,winTile){
         if(state.houtei)yakuList.push({name:'岭上开花',han:1});
         if(state.chankan)yakuList.push({name:'抢杠',han:1});
         if(!fullHand.some(t=>t.isYaochu))yakuList.push({name:'断幺九',han:1});
-        
+
         const honorCounts={};
         fullHand.forEach(t=>{if(t.type==='honor')honorCounts[t.honor]=(honorCounts[t.honor]||0)+1;});
         if(!isChiiToi){
@@ -647,7 +882,7 @@ function calculateYaku(hand,winTile){
             if(honorCounts['chun']>=3)yakuList.push({name:'役牌 (中)',han:1});
         }
         if(!isChiiToi&&menzen){
-            if(checkPinfu(fullHand,winTile)){yakuList.push({name:'平和',han:1});}
+            if(checkPinfu(fullHand,normalizedWinTile)){yakuList.push({name:'平和',han:1});}
         }
         if(!isChiiToi){
             const iipeikoCount=countIipeiko(fullHand);
@@ -666,7 +901,7 @@ function calculateYaku(hand,winTile){
             else if(isHonitsu){yakuList.push({name:'混一色',han:menzen?3:2});}
             const toitoi=checkToitoi(fullHand);
             if(toitoi){yakuList.push({name:'对对和',han:2});}
-            const sananko=checkSananko(fullHand,state.ankan,winTile);
+            const sananko=checkSananko(fullHand,state.ankan,normalizedWinTile);
             if(sananko){yakuList.push({name:'三暗刻',han:2});}
             const sanshokuDoko=checkSanshokuDoko(fullHand);
             if(sanshokuDoko){yakuList.push({name:'三色同刻',han:2});}
@@ -684,66 +919,44 @@ function calculateYaku(hand,winTile){
 }
 
 function countIipeiko(tiles){
-    const shuntsuMap={};
-    const temp=tiles.map(t=>({...t}));
-    for(const suit of['m','p','s']){
-        const suitTiles=temp.filter(t=>t.suit===suit).sort((a,b)=>a.num-b.num);
-        while(suitTiles.length>=3){
-            const first=suitTiles[0];
-            const id2=`${first.num+1}${first.suit}`;
-            const id3=`${first.num+2}${first.suit}`;
-            const idx2=suitTiles.findIndex(t=>t.id===id2);
-            const idx3=suitTiles.findIndex(t=>t.id===id3);
-            if(idx2>0&&idx3>0){
-                const shuntsuKey=`${first.num}${first.suit}`;
-                shuntsuMap[shuntsuKey]=(shuntsuMap[shuntsuKey]||0)+1;
-                suitTiles.splice(0,1);suitTiles.splice(idx2-1,1);suitTiles.splice(idx3-2,1);
-            }else break;
-        }
+    let maxCount=0;
+    for(const {mentsuList} of getHandDecompositions(tiles)){
+        const shuntsuMap={};
+        mentsuList.filter(mentsu=>mentsu.type==='shuntsu').forEach(mentsu=>{
+            const startTile=getTileById(mentsu.ids[0]);
+            if(!startTile)return;
+            const key=`${startTile.num}${startTile.suit}`;
+            shuntsuMap[key]=(shuntsuMap[key]||0)+1;
+        });
+        let count=0;
+        for(const key in shuntsuMap){count+=Math.floor(shuntsuMap[key]/2);}
+        if(count>maxCount)maxCount=count;
     }
-    let count=0;
-    for(const key in shuntsuMap){count+=Math.floor(shuntsuMap[key]/2);}
-    return count;
+    return maxCount;
 }
 
 function countSanshokuDoshun(tiles){
-    const shuntsuSet=new Set();
-    const temp=tiles.map(t=>({...t}));
-    for(const suit of['m','p','s']){
-        const suitTiles=temp.filter(t=>t.suit===suit).sort((a,b)=>a.num-b.num);
-        const suitShuntsu=[];
-        while(suitTiles.length>=3){
-            const first=suitTiles[0];
-            const id2=`${first.num+1}${first.suit}`;
-            const id3=`${first.num+2}${first.suit}`;
-            const idx2=suitTiles.findIndex(t=>t.id===id2);
-            const idx3=suitTiles.findIndex(t=>t.id===id3);
-            if(idx2>0&&idx3>0){
-                suitShuntsu.push(first.num);
-                suitTiles.splice(0,1);suitTiles.splice(idx2-1,1);suitTiles.splice(idx3-2,1);
-            }else break;
+    let maxCount=0;
+    for(const {mentsuList} of getHandDecompositions(tiles)){
+        const shuntsuSet=new Set();
+        mentsuList.filter(mentsu=>mentsu.type==='shuntsu').forEach(mentsu=>{
+            const startTile=getTileById(mentsu.ids[0]);
+            if(startTile)shuntsuSet.add(`${startTile.num}-${startTile.suit}`);
+        });
+        let count=0;
+        for(let num=1;num<=7;num++){
+            if(shuntsuSet.has(`${num}-m`)&&shuntsuSet.has(`${num}-p`)&&shuntsuSet.has(`${num}-s`))count++;
         }
-        suitShuntsu.forEach(num=>shuntsuSet.add(`${num}-${suit}`));
+        if(count>maxCount)maxCount=count;
     }
-    let count=0;
-    for(let num=1;num<=7;num++){
-        if(shuntsuSet.has(`${num}-m`)&&shuntsuSet.has(`${num}-p`)&&shuntsuSet.has(`${num}-s`)){count++;}
-    }
-    return count;
+    return maxCount;
 }
 
 function countIttsu(tiles){
-    for(const suit of['m','p','s']){
-        const suitTiles=tiles.filter(t=>t.suit===suit);
-        if(suitTiles.length<9)continue;
-        const counts={};
-        suitTiles.forEach(t=>counts[t.num]=(counts[t.num]||0)+1);
-        const testCounts={...counts};
-        if(testCounts[1]>=1&&testCounts[2]>=1&&testCounts[3]>=1&&testCounts[4]>=1&&testCounts[5]>=1&&testCounts[6]>=1&&testCounts[7]>=1&&testCounts[8]>=1&&testCounts[9]>=1){
-            testCounts[1]--;testCounts[2]--;testCounts[3]--;testCounts[4]--;testCounts[5]--;testCounts[6]--;testCounts[7]--;testCounts[8]--;testCounts[9]--;
-            const remainingTiles=[];
-            for(let num=1;num<=9;num++){for(let i=0;i<(testCounts[num]||0);i++){remainingTiles.push({suit:suit,num:num});}}
-            if(canWinWith5Tiles(remainingTiles)){return 1;}
+    for(const {mentsuList} of getHandDecompositions(tiles)){
+        for(const suit of['m','p','s']){
+            const starts=new Set(mentsuList.filter(mentsu=>mentsu.type==='shuntsu').map(mentsu=>getTileById(mentsu.ids[0])).filter(tile=>tile&&tile.suit===suit).map(tile=>tile.num));
+            if(starts.has(1)&&starts.has(4)&&starts.has(7))return 1;
         }
     }
     return 0;
@@ -770,68 +983,54 @@ function canWinWith5Tiles(tiles){
 
 function checkChanta(tiles){
     if(isSevenPairs(tiles))return 0;
-    const hasHonor=tiles.some(t=>t.type==='honor');
-    const counts={};
-    tiles.forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
-    let allMentsuHaveYaochu=true;
-    for(const id in counts){
-        if(counts[id]>=3){
-            const tile=getTileById(id);
-            if(tile&&!tile.isYaochu)allMentsuHaveYaochu=false;
-        }
-    }
-    for(const suit of['m','p','s']){
-        for(let num=1;num<=7;num++){
-            const id1=`${num}${suit}`;const id2=`${num+1}${suit}`;const id3=`${num+2}${suit}`;
-            if(counts[id1]>=1&&counts[id2]>=1&&counts[id3]>=1){
-                if(num!==1&&num!==7)allMentsuHaveYaochu=false;
+    let best=0;
+    for(const {pairId,mentsuList} of getHandDecompositions(tiles)){
+        const pairTile=getTileById(pairId);
+        if(!pairTile||!pairTile.isYaochu)continue;
+        let hasHonor=pairTile.type==='honor';
+        let hasSequence=false;
+        let valid=true;
+        for(const mentsu of mentsuList){
+            if(mentsu.type==='kotsu'){
+                const tile=getTileById(mentsu.id);
+                if(!tile||!tile.isYaochu){valid=false;break;}
+                if(tile.type==='honor')hasHonor=true;
+            }else if(mentsu.type==='shuntsu'){
+                const startTile=getTileById(mentsu.ids[0]);
+                if(!startTile||(startTile.num!==1&&startTile.num!==7)){valid=false;break;}
+                hasSequence=true;
             }
         }
+        if(valid&&hasSequence)best=Math.max(best,hasHonor?1:2);
     }
-    if(allMentsuHaveYaochu&&tiles.length===14){return hasHonor?1:2;}
-    return 0;
+    return best;
 }
 
 function checkHonitsu(tiles){
-    const suits=new Set(tiles.filter(t=>t.suit).map(t=>t.suit));
-    const hasHonor=tiles.some(t=>t.type==='honor');
+    const normalized=normalizeTiles(tiles);
+    const suits=new Set(normalized.filter(t=>t.suit).map(t=>t.suit));
+    const hasHonor=normalized.some(t=>t.type==='honor');
     return suits.size===1&&hasHonor;
 }
 
 function checkChinitsu(tiles){
-    const suits=new Set(tiles.filter(t=>t.suit).map(t=>t.suit));
-    const hasHonor=tiles.some(t=>t.type==='honor');
+    const normalized=normalizeTiles(tiles);
+    const suits=new Set(normalized.filter(t=>t.suit).map(t=>t.suit));
+    const hasHonor=normalized.some(t=>t.type==='honor');
     return suits.size===1&&!hasHonor;
 }
 
 function checkToitoi(tiles){
-    const counts={};
-    tiles.forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
-    const ids=Object.keys(counts);
-    for(let i=0;i<ids.length;i++){
-        const pairId=ids[i];
-        if(counts[pairId]>=2){
-            let valid=true;
-            let kotsuNum=0;
-            for(let j=0;j<ids.length;j++){
-                const id=ids[j];
-                let c=counts[id];
-                if(id===pairId){c-=2;}
-                if(c===0)continue;
-                if(c===3||c===4){kotsuNum++;}else{valid=false;break;}
-            }
-            if(valid&&kotsuNum===4){return true;}
-        }
+    for(const {mentsuList} of getHandDecompositions(tiles)){
+        if(mentsuList.every(mentsu=>mentsu.type==='kotsu'))return true;
     }
-    return false;
+    return 0;
 }
 
 function checkSananko(fullHand,ankan,winTile){
     let baseAnko=ankan.length;
-    const handCounts={};
-    state.hand.forEach(t=>{handCounts[t.id]=(handCounts[t.id]||0)+1;});
-    const fullCounts={};
-    fullHand.forEach(t=>{fullCounts[t.id]=(fullCounts[t.id]||0)+1;});
+    const handCounts=countTilesById(state.hand);
+    const fullCounts=countTilesById(fullHand);
     const ids=Object.keys(fullCounts).sort();
     for(let i=0;i<ids.length;i++){
         const pairId=ids[i];
@@ -881,8 +1080,7 @@ function decomposeForMaxSanAnko(counts,handCounts,currentAnko,baseAnko,winTile){
 }
 
 function checkSanshokuDoko(tiles){
-    const counts={};
-    tiles.forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
+    const counts=countTilesById(tiles);
     for(let num=1;num<=9;num++){
         const mCount=counts[`${num}m`]||0;
         const pCount=counts[`${num}p`]||0;
@@ -895,13 +1093,13 @@ function checkSanshokuDoko(tiles){
 function checkShosangen(tiles){
     if(isSevenPairs(tiles))return false;
     const sangenCounts={'white':0,'rich':0,'red':0};
-    tiles.forEach(t=>{
+    normalizeTiles(tiles).forEach(t=>{
         if(t.honor==='haku')sangenCounts.white++;
         if(t.honor==='hatsu')sangenCounts.rich++;
         if(t.honor==='chun')sangenCounts.red++;
     });
     const kotsuCount=Object.values(sangenCounts).filter(c=>c>=3).length;
-    const hasPair=Object.values(sangenCounts).some(c=>c>=2);
+    const hasPair=Object.values(sangenCounts).some(c=>c===2);
     return kotsuCount>=2&&hasPair;
 }
 
@@ -910,9 +1108,14 @@ function calculateDoraCount(winTile){
     const indicators=[...state.dora,...(state.isRiichi?state.uradora:[])];
     const doraTiles=indicators.map(ind=>{
         if(ind.type==='honor'){
-            const order=['east','south','west','north','white','rich','red'];
-            const idx=order.findIndex(id=>id===ind.id);
-            return getTileById(order[(idx+1)%7]);
+            const windOrder=['east','south','west','north'];
+            const dragonOrder=['white','rich','red'];
+            if(windOrder.includes(ind.id)){
+                const idx=windOrder.findIndex(id=>id===ind.id);
+                return getTileById(windOrder[(idx+1)%4]);
+            }
+            const idx=dragonOrder.findIndex(id=>id===ind.id);
+            return getTileById(dragonOrder[(idx+1)%3]);
         }else{
             const num=ind.num===9?1:ind.num+1;
             return allTiles.find(t=>t.suit===ind.suit&&t.num===num&&!t.red);
@@ -946,14 +1149,13 @@ function calculateDoraCount(winTile){
 
 function calculateFu(winTile, yakuResult) {
     if (yakuResult.isYakuman) return 0;
-    const fullHand = [...getAllTiles(), winTile];
+    const fullHand = [...getTilesForTenpai(), normalizeTile(winTile)];
     if (isSevenPairs(fullHand)) return 25;
     
     const isPinfu = yakuResult.yakuList.some(y => y.name === '平和');
     if (isPinfu) { return state.winType === 'tsumo' ? 20 : 30; }
 
-    const handCounts = {};
-    state.hand.forEach(t => { handCounts[t.id] = (handCounts[t.id] || 0) + 1; });
+    const handCounts = countTilesById(state.hand);
     
     // 寻找所有可能的分解方式，并计算最大符数（针对当前听牌张）
     const maxFu = findMaxFuDecomposition(fullHand, handCounts, winTile);
@@ -1034,6 +1236,7 @@ function calculateFuFromDecomposition(pairId, mentsuList, handCounts, winTile) {
     const menzen = isMenzen();
     if (menzen && state.winType === 'ron') fu += 10;
     if (state.winType === 'tsumo') fu += 2;
+    const normalizedWinId = normalizeTileId(winTile);
     
     const pairTile = getTileById(pairId);
     if (pairTile) {
@@ -1047,135 +1250,106 @@ function calculateFuFromDecomposition(pairId, mentsuList, handCounts, winTile) {
             const tile = getTileById(mentsu.id);
             if (!tile) continue;
             
-            const isMelded = state.melds.some(m => m.every(t => {
-                const tId = t.red && t.num === 5 ? `5${t.suit}` : t.id;
-                return tId === mentsu.id;
-            }));
-            
-            const isDeclaredAnkan = state.ankan.some(t => {
-                const tId = t.red && t.num === 5 ? `5${t.suit}` : t.id;
-                return tId === mentsu.id;
-            });
-
-            // 【修复核心】：如果是荣和，且当前刻子是由和牌张组成的，则视为明刻（副露）
-            let isRonKotsu = false;
-            if (state.winType === 'ron' && winTile) {
-                // 处理和牌张的红宝牌逻辑，确保 ID 匹配
-                const winId = winTile.red && winTile.num === 5 ? `5${winTile.suit}` : winTile.id;
-                if (mentsu.id === winId) {
-                    isRonKotsu = true;
-                }
-            }
+            const isMelded = isOpenMentsu(mentsu);
+            const isDeclaredAnkan = isDeclaredAnkanMentsu(mentsu);
+            const normalizedHandCount = handCounts[mentsu.id] || 0;
+            const isRonKotsu = state.winType === 'ron' && !isMelded && !isDeclaredAnkan && mentsu.id === normalizedWinId && normalizedHandCount === 2;
             
             if (isDeclaredAnkan) { 
                 fu += tile.isYaochu ? 32 : 16; 
             }
-            // 修改条件：如果是已有的副露，或者是荣和形成的刻子，都按明刻逻辑处理
             else if (isMelded || isRonKotsu) { 
-                // 检查是否是大明杠（4 张），大明杠符数不同
-                // 注意：荣和形成的刻子通常只是 3 张（明刻），不会触发 length === 4
                 const meld = state.melds.find(m => m.every(t => (t.red && t.num === 5 ? `5${t.suit}` : t.id) === mentsu.id));
                 if (meld && meld.length === 4) {
                     fu += tile.isYaochu ? 32 : 16;
                 } else {
-                    // 明刻（副露）或 荣和刻子：幺九 4 符，中张 2 符
                     fu += tile.isYaochu ? 4 : 2;
                 }
             }
             else {
-                // 暗刻：幺九 8 符，中张 4 符
                 fu += tile.isYaochu ? 8 : 4; 
             }
         }
     }
     
-    if (state.winType === 'ron') {
-        const waitType = getWaitType(state.hand, winTile);
-        if (waitType === 'kanchan' || waitType === 'penchan' || waitType === 'tanki') { fu += 2; }
-    }
+    const waitTypes = getWaitTypesForDecomposition(pairId, mentsuList, winTile);
+    if (waitTypes.has('kanchan') || waitTypes.has('penchan') || waitTypes.has('tanki')) fu += 2;
+    if (!menzen && state.winType === 'ron' && fu === 20) fu = 30;
     
     return fu;
 }
 
 function getWaitType(hand, winTile) {
     if (!winTile) return null;
-    const testHand = [...hand, winTile];
-    const counts = {};
-    testHand.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
-    
-    // 检查单骑 (Tanki)
-    if (counts[winTile.id] === 2) {
-        const originalCount = hand.filter(t => t.id === winTile.id).length;
-        if (originalCount === 1) {
-             const otherPairs = Object.keys(counts).filter(id => id !== winTile.id && counts[id] >= 2).length;
-             if (otherPairs === 0) return 'tanki';
-        }
+    const fullHand = normalizeTiles([...hand, winTile]);
+    const found = new Set();
+    for (const {pairId, mentsuList} of getHandDecompositions(fullHand)) {
+        getWaitTypesForDecomposition(pairId, mentsuList, winTile).forEach(type => found.add(type));
     }
-    
-    // 检查坎张 (Kanchan)
-    if (winTile.type !== 'honor') {
-        for (let num = 1; num <= 7; num++) {
-            const id1 = `${num}${winTile.suit}`;
-            const id2 = `${num + 2}${winTile.suit}`;
-            if (counts[id1] >= 1 && counts[id2] >= 1 && winTile.num === num + 1) { 
-                return 'kanchan'; 
-            }
-        }
-    }
-    
-    // 检查边张 (Penchan)
-    if (winTile.type !== 'honor') {
-        if (winTile.num === 3) {
-            const id1 = `1${winTile.suit}`;
-            const id2 = `2${winTile.suit}`;
-            if (counts[id1] >= 1 && counts[id2] >= 1) { return 'penchan'; }
-        }
-        if (winTile.num === 7) {
-            const id1 = `8${winTile.suit}`;
-            const id2 = `9${winTile.suit}`;
-            if (counts[id1] >= 1 && counts[id2] >= 1) { return 'penchan'; }
-        }
-    }
-    
-    return null;
+    return ['tanki', 'kanchan', 'penchan', 'ryanmen'].find(type => found.has(type)) || null;
 }
 
 function calculatePoints(han,fu,isYakuman,yakumanCount){
     const dealer=isDealer();
     const isTsumo=state.winType==='tsumo';
+    const honba=Math.max(0,parseInt(state.honbaCount||0,10)||0);
+    const kyotaku=Math.max(0,parseInt(state.kyotakuCount||0,10)||0);
+    const buildDescNote=()=>{
+        const parts=[];
+        if(honba>0)parts.push(`${honba}\u672c\u573a`);
+        if(kyotaku>0)parts.push(`\u53e6\u52a0${kyotaku}\u4f9b\u6258`);
+        return parts.length?`\uff08${parts.join('\uff0c')}\uff09`:'';
+    };
+    const applyBonuses=(result)=>{
+        const note=buildDescNote();
+        if(result.type==='ron'){
+            const ron=result.ron+honba*300;
+            return{desc:`\u8363\u548c\uff1a${ron} \u70b9${note}`,total:ron+kyotaku*1000,payments:{ron}};
+        }
+        if(result.type==='tsumo-dealer'){
+            const perPerson=result.perPerson+honba*100;
+            return{desc:`\u81ea\u6478\uff1a${perPerson}\u70b9\uff08\u5168\u5458\uff09${note}`,total:perPerson*3+kyotaku*1000,payments:{all:perPerson}};
+        }
+        const childPay=result.childPay+honba*100;
+        const dealerPay=result.dealerPay+honba*100;
+        return{desc:`\u81ea\u6478\uff1a${childPay}/${dealerPay} \u70b9${note}`,total:childPay*2+dealerPay+kyotaku*1000,payments:{child:childPay,dealer:dealerPay}};
+    };
+    if(!isYakuman&&han<=0)return{desc:'\u65e0\u5f79\uff0c\u4e0d\u80fd\u548c\u724c',total:0};
     if(isYakuman||han>=13){
         const count=isYakuman?yakumanCount:1;
         if(isTsumo){
-            if(dealer){return{desc:`自摸：${16000*count} 点 (全员)`,total:48000*count};}
-            else{return{desc:`自摸：${8000*count}/${16000*count} 点`,total:32000*count};}
-        }else{
-            const total=dealer?48000*count:32000*count;
-            return{desc:`荣和：${total} 点`,total:total};
+            if(dealer)return applyBonuses({type:'tsumo-dealer',perPerson:16000*count});
+            return applyBonuses({type:'tsumo-nondealer',childPay:8000*count,dealerPay:16000*count});
         }
+        return applyBonuses({type:'ron',ron:dealer?48000*count:32000*count});
     }
     if(han>=11){
         if(isTsumo){
-            if(dealer){return{desc:'自摸：12000 点 (全员)',total:36000};}
-            else{return{desc:'自摸：6000/12000 点',total:24000};}
-        }else{return{desc:`荣和：${dealer?36000:24000} 点`,total:dealer?36000:24000};}
+            if(dealer)return applyBonuses({type:'tsumo-dealer',perPerson:12000});
+            return applyBonuses({type:'tsumo-nondealer',childPay:6000,dealerPay:12000});
+        }
+        return applyBonuses({type:'ron',ron:dealer?36000:24000});
     }
     if(han>=8){
         if(isTsumo){
-            if(dealer){return{desc:'自摸：8000 点 (全员)',total:24000};}
-            else{return{desc:'自摸：4000/8000 点',total:16000};}
-        }else{return{desc:`荣和：${dealer?24000:16000} 点`,total:dealer?24000:16000};}
+            if(dealer)return applyBonuses({type:'tsumo-dealer',perPerson:8000});
+            return applyBonuses({type:'tsumo-nondealer',childPay:4000,dealerPay:8000});
+        }
+        return applyBonuses({type:'ron',ron:dealer?24000:16000});
     }
     if(han>=6){
         if(isTsumo){
-            if(dealer){return{desc:'自摸：6000 点 (全员)',total:18000};}
-            else{return{desc:'自摸：3000/6000 点',total:12000};}
-        }else{return{desc:`荣和：${dealer?18000:12000} 点`,total:dealer?18000:12000};}
+            if(dealer)return applyBonuses({type:'tsumo-dealer',perPerson:6000});
+            return applyBonuses({type:'tsumo-nondealer',childPay:3000,dealerPay:6000});
+        }
+        return applyBonuses({type:'ron',ron:dealer?18000:12000});
     }
     if(han>=5||(han===4&&fu>=40)||(han===3&&fu>=70)){
         if(isTsumo){
-            if(dealer){return{desc:'自摸：4000 点 (全员)',total:12000};}
-            else{return{desc:'自摸：2000/4000 点',total:8000};}
-        }else{return{desc:`荣和：${dealer?12000:8000} 点`,total:dealer?12000:8000};}
+            if(dealer)return applyBonuses({type:'tsumo-dealer',perPerson:4000});
+            return applyBonuses({type:'tsumo-nondealer',childPay:2000,dealerPay:4000});
+        }
+        return applyBonuses({type:'ron',ron:dealer?12000:8000});
     }
     const dealerRonTable={1:{30:1500,40:2000,50:2400,60:2900,70:3400,80:3900,90:4400,100:4800,110:5300},2:{25:2400,30:2900,40:3900,50:4800,60:5800,70:6800,80:7700,90:8700,100:9600,110:10600},3:{25:4800,30:5800,40:7700,50:9600,60:11600},4:{25:9600,30:11600}};
     const dealerTsumoTable={1:{30:[500,500],40:[700,700],50:[800,800],60:[1000,1000],70:[1200,1200],80:[1300,1300],90:[1500,1500],100:[1600,1600],110:[1800,1800]},2:{25:[800,800],30:[1000,1000],40:[1300,1300],50:[1600,1600],60:[2000,2000],70:[2300,2300],80:[2600,2600],90:[2900,2900],100:[3200,3200],110:[3600,3600]},3:{25:[1600,1600],30:[2000,2000],40:[2600,2600],50:[3200,3200],60:[3900,3900]},4:{25:[3200,3200],30:[3900,3900]}};
@@ -1185,40 +1359,39 @@ function calculatePoints(han,fu,isYakuman,yakumanCount){
     if(dealer){
         if(isTsumo){
             const tsumoPoints=dealerTsumoTable[han]?.[normalizedFu];
-            if(tsumoPoints){return{desc:`自摸：${tsumoPoints[0]}点（全员）`,total:tsumoPoints[0]*2};}
+            if(tsumoPoints)return applyBonuses({type:'tsumo-dealer',perPerson:tsumoPoints[0]});
         }else{
             const ronPoints=dealerRonTable[han]?.[normalizedFu];
-            if(ronPoints){return{desc:`荣和：${ronPoints} 点`,total:ronPoints};}
+            if(ronPoints)return applyBonuses({type:'ron',ron:ronPoints});
         }
     }else{
         if(isTsumo){
             const tsumoPoints=nonDealerTsumoTable[han]?.[normalizedFu];
-            if(tsumoPoints){return{desc:`自摸：${tsumoPoints[0]}/${tsumoPoints[1]} 点`,total:tsumoPoints[0]*2+tsumoPoints[1]};}
+            if(tsumoPoints)return applyBonuses({type:'tsumo-nondealer',childPay:tsumoPoints[0],dealerPay:tsumoPoints[1]});
         }else{
             const ronPoints=nonDealerRonTable[han]?.[normalizedFu];
-            if(ronPoints){return{desc:`荣和：${ronPoints} 点`,total:ronPoints};}
+            if(ronPoints)return applyBonuses({type:'ron',ron:ronPoints});
         }
     }
     const base=fu*Math.pow(2,han+2);
     if(isTsumo){
         if(dealer){
             const perPerson=Math.ceil(base*2/100)*100;
-            return{desc:`自摸：${perPerson} 点 (全员)`,total:perPerson*2};
-        }else{
-            const nonDealer=Math.ceil(base/100)*100;
-            const dealerPay=Math.ceil(base*2/100)*100;
-            return{desc:`自摸：${nonDealer}/${dealerPay} 点`,total:nonDealer*2+dealerPay};
+            return applyBonuses({type:'tsumo-dealer',perPerson});
         }
-    }else{
-        const ronPoints=Math.ceil(base*4/100)*100;
-        return{desc:`荣和：${ronPoints} 点`,total:ronPoints};
+        const childPay=Math.ceil(base/100)*100;
+        const dealerPay=Math.ceil(base*2/100)*100;
+        return applyBonuses({type:'tsumo-nondealer',childPay,dealerPay});
     }
+    const ron=Math.ceil(base*(dealer?6:4)/100)*100;
+    return applyBonuses({type:'ron',ron});
 }
 
 function calculate(){
+    syncSpecialOptions(true);
     const totalTiles=getTotalTiles();
     if(totalTiles!==13){
-        alert(`当前总牌数为 ${totalTiles} 张，请调整手牌或副露，使总数为 13 张。\n\n注意：大明杠和暗杠都算 3 张名额（因为岭上摸牌）`);
+        alert(`\u5f53\u524d\u603b\u724c\u6570\u4e3a ${totalTiles} \u5f20\uff0c\u8bf7\u8c03\u6574\u624b\u724c\u6216\u526f\u9732\uff0c\u4f7f\u603b\u6570\u4e3a 13 \u5f20\u3002\n\n\u6ce8\u610f\uff1a\u5927\u660e\u6760\u548c\u6697\u6760\u90fd\u7b97 3 \u5f20\u540d\u989d\uff08\u56e0\u4e3a\u5cad\u4e0a\u6478\u724c\uff09`);
         return;
     }
     
@@ -1229,55 +1402,57 @@ function calculate(){
     resultContent.innerHTML='';
     
     if(waits.length===1&&waits[0].tile.id==='none'){
-        resultContent.innerHTML=`<div class="result-item"><h4>听牌结果</h4><div class="point-text">当前无听牌</div></div>`;
+        resultContent.innerHTML=`<div class="result-item"><h4>\u542c\u724c\u7ed3\u679c</h4><div class="point-text">\u5f53\u524d\u65e0\u542c\u724c</div></div>`;
         return;
     }
     
-    // 修复：每个听牌张单独计算并显示自己的符数
+    let yakuWaitCount=0;
     waits.forEach(wait => {
         const tile = wait.tile;
         const yakuRes = calculateYaku(state.hand, tile);
         const doraCount = calculateDoraCount(tile);
         
-        if(yakuRes.yakuList.some(y=>y.name==='九莲宝灯')){
+        if(yakuRes.yakuList.some(y=>y.name==='\u4e5d\u83b2\u5b9d\u706f')){
             if(waits.length===9){
-                yakuRes.yakuList=yakuRes.yakuList.filter(y=>y.name!=='九莲宝灯');
-                yakuRes.yakuList.push({name:'纯正九莲宝灯',han:26,isYakuman:true});
+                yakuRes.yakuList=yakuRes.yakuList.filter(y=>y.name!=='\u4e5d\u83b2\u5b9d\u706f');
+                yakuRes.yakuList.push({name:'\u7eaf\u6b63\u4e5d\u83b2\u5b9d\u706f',han:26,isYakuman:true});
                 yakuRes.isYakuman=true;
                 yakuRes.yakumanCount=2;
             }
         }
         
-        const han = yakuRes.isYakuman ? 0 : yakuRes.yakuList.reduce((sum,y)=>sum+y.han,0) + doraCount;
-        
-        // 每个听牌张单独计算自己的符数
-        const fu = calculateFu(tile, yakuRes);
-        
-        // 使用该听牌张自己的符数计算点数
-        const pointsRes = calculatePoints(han, fu, yakuRes.isYakuman, yakuRes.yakumanCount);
-        
-        const yakuText = [...yakuRes.yakuList.map(x=>`${x.name}${x.isYakuman?'':`(${x.han} 翻)`}`),(doraCount>0?`宝牌/里宝牌/赤宝牌 (${doraCount} 翻)`:'')].filter(Boolean).join(',');
+        const hasScoringYaku=yakuRes.isYakuman||yakuRes.yakuList.length>0;
+        const han = hasScoringYaku && !yakuRes.isYakuman ? yakuRes.yakuList.reduce((sum,y)=>sum+y.han,0) + doraCount : 0;
+        const fu = hasScoringYaku ? calculateFu(tile, yakuRes) : 0;
+        const pointsRes = hasScoringYaku ? calculatePoints(han, fu, yakuRes.isYakuman, yakuRes.yakumanCount) : {desc:'\u65e0\u5f79\uff0c\u4e0d\u80fd\u548c\u724c',total:0};
+        const yakuText = [...yakuRes.yakuList.map(x=>`${x.name}${x.isYakuman?'':`(${x.han} \u7ffb)`}`),(doraCount>0?`\u5b9d\u724c/\u91cc\u5b9d\u724c/\u8d64\u5b9d\u724c (${doraCount} \u7ffb)`:'')].filter(Boolean).join('\uff0c');
         const isYakumanClass = yakuRes.isYakuman ? 'yakuman' : '';
-        const fuText = yakuRes.isYakuman ? '' : `,${fu}符`;
-        const hanText = yakuRes.isYakuman ? `役满` : `${han} 翻`;
-        const remainHtml = wait.remainCount > 0 ? `<span class="remain-count">剩余${wait.remainCount}张</span>` : '';
+        const fuText = hasScoringYaku && !yakuRes.isYakuman ? `,${fu}\u7b26` : '';
+        const hanText = yakuRes.isYakuman ? `\u5f79\u6ee1` : hasScoringYaku ? `${han} \u7ffb` : '\u65e0\u5f79';
+        const remainHtml = wait.remainCount > 0 ? `<span class="remain-count">\u5269\u4f59${wait.remainCount}\u5f20</span>` : '';
+        const extraNote = hasScoringYaku ? '' : '<div class="yaku-list">\u8bf4\u660e\uff1a\u5b9d\u724c\u53ea\u80fd\u52a0\u7ffb\uff0c\u4e0d\u80fd\u5355\u72ec\u6784\u6210\u548c\u724c\u5f79\uff1b\u6b64\u5f20\u5c5e\u4e8e\u5f62\u5f0f\u542c\u724c\u3002</div>';
+        if(hasScoringYaku)yakuWaitCount++;
         
         resultContent.innerHTML += `<div class="result-item ${isYakumanClass}">
-            <h4>和牌张：${tile.name} ${yakuRes.isYakuman?'<span class="yakuman-tag">役满</span>':''} ${remainHtml}</h4>
-            <div class="point-text">听牌：${renderInlineTiles([tile])}</div>
-            <div class="point-text">番数：<span class="point-value">${hanText}</span>${fuText}</div>
+            <h4>\u548c\u724c\u5f20\uff1a${tile.name} ${yakuRes.isYakuman?'<span class="yakuman-tag">\u5f79\u6ee1</span>':''} ${remainHtml}</h4>
+            <div class="point-text">\u542c\u724c\uff1a${renderInlineTiles([tile])}</div>
+            <div class="point-text">\u756a\u6570\uff1a<span class="point-value">${hanText}</span>${fuText}</div>
             <div class="point-text" style="font-size: 20px; color: #c0392b; margin-top: 10px;">${pointsRes.desc}</div>
-            <div class="yaku-list">役种：${yakuText||'（无/未判定）'}</div>
+            <div class="yaku-list">\u5f79\u79cd\uff1a${yakuText||'\uff08\u65e0\uff09'}</div>
+            ${extraNote}
         </div>`;
     });
+    if(yakuWaitCount===0){
+        resultContent.innerHTML = `<div class="result-item"><h4>\u542c\u724c\u7ed3\u679c</h4><div class="point-text">\u5f53\u524d\u4e3a\u5f62\u5f0f\u542c\u724c\uff1a\u724c\u5f62\u53ef\u548c\uff0c\u4f46\u6240\u6709\u548c\u724c\u5f20\u5747\u65e0\u5f79\u3002</div><div class="yaku-list">\u63d0\u793a\uff1a\u9700\u8981\u81f3\u5c11 1 \u4e2a\u548c\u724c\u5f79\uff1b\u5b9d\u724c\u4e0d\u80fd\u5355\u72ec\u548c\u724c\u3002</div></div>` + resultContent.innerHTML;
+    }
 }
 
 function bindButtons(){
     document.getElementById('clearHand').addEventListener('click',()=>{state.hand=[];updateHandDisplay();});
     document.getElementById('addMeld').addEventListener('click',addMeld);
-    document.getElementById('clearMeld').addEventListener('click',()=>{state.melds=[];selectedForMeld=[];updateMeldArea();});
+    document.getElementById('clearMeld').addEventListener('click',()=>{state.melds=[];selectedForMeld=[];updateMeldArea();syncSpecialOptions();});
     document.getElementById('addAnkan').addEventListener('click',addAnkan);
-    document.getElementById('clearAnkan').addEventListener('click',()=>{state.ankan=[];selectedForAnkan=null;updateAnkanDisplay();});
+    document.getElementById('clearAnkan').addEventListener('click',()=>{state.ankan=[];selectedForAnkan=null;updateAnkanDisplay();syncSpecialOptions();});
     // 新增：宝牌清空按钮绑定
     document.getElementById('clearDora').addEventListener('click',()=>{state.dora=[];updateDoraDisplay();});
     document.getElementById('clearUradora').addEventListener('click',()=>{state.uradora=[];updateUradoraDisplay();});
@@ -1285,9 +1460,11 @@ function bindButtons(){
 }
 
 function init(){
+    loadPersistedState();
     initTileSelectors();
     initWindSelectors();
     bindButtons();
+    syncSpecialOptions();
     updateHandDisplay();
     updateMeldArea();
     updateAnkanDisplay();
