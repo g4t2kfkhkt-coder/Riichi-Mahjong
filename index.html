@@ -303,17 +303,50 @@ function isOpenMentsu(mentsu){
     return false;
 }
 function isDeclaredAnkanMentsu(mentsu){return mentsu.type==='kotsu'&&state.ankan.some(t=>normalizeTileId(t)===mentsu.id);}
-function getHandDecompositions(tiles){
-    const counts={};
-    normalizeTiles(tiles).forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
+function getFixedMentsuFromState(){
+    const fixedMentsu=[];
+    state.melds.forEach(meld=>{
+        const normalizedIds=meld.map(normalizeTileId).sort();
+        if(meld.length>=3&&normalizedIds.every(id=>id===normalizedIds[0])){
+            fixedMentsu.push({type:'kotsu',id:normalizedIds[0],count:meld.length});
+            return;
+        }
+        const normalizedTiles=normalizeTiles(meld).sort((a,b)=>{if(a.suit!==b.suit)return(a.suit||'').localeCompare(b.suit||'');return(a.num||0)-(b.num||0);});
+        fixedMentsu.push({type:'shuntsu',ids:normalizedTiles.map(tile=>tile.id)});
+    });
+    state.ankan.forEach(tile=>fixedMentsu.push({type:'kotsu',id:normalizeTileId(tile),count:4}));
+    return fixedMentsu;
+}
+function removeFixedMentsuFromCounts(counts,fixedMentsu){
+    const remaining={...counts};
+    for(const mentsu of fixedMentsu){
+        if(mentsu.type==='kotsu'){
+            remaining[mentsu.id]=(remaining[mentsu.id]||0)-3;
+            if((remaining[mentsu.id]||0)<0)return null;
+            if(remaining[mentsu.id]===0)delete remaining[mentsu.id];
+            continue;
+        }
+        for(const id of mentsu.ids){
+            remaining[id]=(remaining[id]||0)-1;
+            if((remaining[id]||0)<0)return null;
+            if(remaining[id]===0)delete remaining[id];
+        }
+    }
+    return remaining;
+}
+function getHandDecompositions(tiles,fixedMentsu=getFixedMentsuFromState()){
+    const counts=countTilesById(tiles);
+    const remainingCounts=removeFixedMentsuFromCounts(counts,fixedMentsu);
+    const targetMentsuCount=4-fixedMentsu.length;
+    if(!remainingCounts||targetMentsuCount<0)return[];
     const decompositions=[];
-    for(const pairId of Object.keys(counts)){
-        if(counts[pairId]<2)continue;
-        const tempCounts={...counts};
+    for(const pairId of Object.keys(remainingCounts)){
+        if(remainingCounts[pairId]<2)continue;
+        const tempCounts={...remainingCounts};
         tempCounts[pairId]-=2;
         if(tempCounts[pairId]===0)delete tempCounts[pairId];
-        const mentsuOptions=decomposeToMentsu(tempCounts,[]);
-        mentsuOptions.forEach(mentsuList=>decompositions.push({pairId,mentsuList}));
+        const mentsuOptions=decomposeToMentsu(tempCounts,[],targetMentsuCount);
+        mentsuOptions.forEach(mentsuList=>decompositions.push({pairId,mentsuList:[...fixedMentsu,...mentsuList]}));
     }
     return decompositions;
 }
@@ -583,21 +616,7 @@ function isValidMahjongHand(tiles) {
 }
 
 function checkMentsuGeneral(tiles){
-    const counts={};tiles.forEach(t=>counts[t.id]=(counts[t.id]||0)+1);
-    const ids=Object.keys(counts);
-    for(let i=0;i<ids.length;i++){
-        const pairId=ids[i];
-        if(counts[pairId]>=2){
-            let tempTiles=[...tiles];
-            let removed=0;
-            for(let k=0;k<tempTiles.length;k++){
-                if(tempTiles[k].id===pairId&&removed<2){tempTiles[k]=null;removed++;}
-            }
-            tempTiles=tempTiles.filter(t=>t!==null);
-            if(canDecomposeTo4Mentsu(tempTiles)){return true;}
-        }
-    }
-    return false;
+    return getHandDecompositions(tiles).length>0;
 }
 
 function canDecomposeTo4Mentsu(tiles){
@@ -724,6 +743,78 @@ function checkPinfu(tiles,winTile){
     return false;
 }
 
+function buildCommonNonYakumanYaku(fullHand,menzen){
+    const yakuList=[];
+    if(state.isDoubleRiichi&&menzen){
+        yakuList.push({name:'双立直',han:2});
+        if(state.ippatsu)yakuList.push({name:'一发',han:1});
+    }else if(state.isRiichi&&menzen){
+        yakuList.push({name:'立直',han:1});
+        if(state.ippatsu)yakuList.push({name:'一发',han:1});
+    }
+    if(state.winType==='tsumo'&&menzen)yakuList.push({name:'门清自摸和',han:1});
+    if(state.haitei)yakuList.push({name:state.winType==='tsumo'?'海底摸月':'河底捞鱼',han:1});
+    if(state.houtei)yakuList.push({name:'岭上开花',han:1});
+    if(state.chankan)yakuList.push({name:'抢杠',han:1});
+    if(!fullHand.some(t=>t.isYaochu))yakuList.push({name:'断幺九',han:1});
+    const isHonitsu=checkHonitsu(fullHand);
+    const isChinitsu=checkChinitsu(fullHand);
+    if(isChinitsu){yakuList.push({name:'清一色',han:menzen?6:5});}
+    else if(isHonitsu){yakuList.push({name:'混一色',han:menzen?3:2});}
+    if(fullHand.every(t=>t.isYaochu)){yakuList.push({name:'混老头',han:2});}
+    return yakuList;
+}
+
+function buildStandardOnlyYaku(fullHand,normalizedWinTile,menzen,kanCount){
+    const yakuList=[];
+    const honorCounts={};
+    fullHand.forEach(t=>{if(t.type==='honor')honorCounts[t.honor]=(honorCounts[t.honor]||0)+1;});
+    if(honorCounts[state.fieldWind]>=3)yakuList.push({name:`场风 (${getTileById(state.fieldWind).name})`,han:1});
+    if(honorCounts[state.seatWind]>=3)yakuList.push({name:`自风 (${getTileById(state.seatWind).name})`,han:1});
+    if(honorCounts['haku']>=3)yakuList.push({name:'役牌 (白)',han:1});
+    if(honorCounts['hatsu']>=3)yakuList.push({name:'役牌 (发)',han:1});
+    if(honorCounts['chun']>=3)yakuList.push({name:'役牌 (中)',han:1});
+    if(menzen&&checkPinfu(fullHand,normalizedWinTile)){yakuList.push({name:'平和',han:1});}
+    const iipeikoCount=countIipeiko(fullHand);
+    if(iipeikoCount>=2&&menzen){yakuList.push({name:'二杯口',han:3});}
+    else if(iipeikoCount>=1&&menzen){yakuList.push({name:'一杯口',han:1});}
+    const sanshoku=countSanshokuDoshun(fullHand);
+    if(sanshoku>0){yakuList.push({name:'三色同顺',han:menzen?2:1});}
+    const ittsuCount=countIttsu(fullHand);
+    if(ittsuCount>0){yakuList.push({name:'一气通贯',han:menzen?2:1});}
+    const chanta=checkChanta(fullHand);
+    if(chanta===2){yakuList.push({name:'纯全带幺九',han:menzen?3:2});}
+    else if(chanta===1){yakuList.push({name:'混全带幺九',han:menzen?2:1});}
+    if(checkToitoi(fullHand)){yakuList.push({name:'对对和',han:2});}
+    if(checkSananko(fullHand,state.ankan,normalizedWinTile)){yakuList.push({name:'三暗刻',han:2});}
+    if(checkSanshokuDoko(fullHand)){yakuList.push({name:'三色同刻',han:2});}
+    if(kanCount>=3){yakuList.push({name:'三杠子',han:2});}
+    if(checkShosangen(fullHand)){yakuList.push({name:'小三元',han:2});}
+    return yakuList;
+}
+
+function buildChiitoiOnlyYaku(){
+    return[{name:'七对子',han:2}];
+}
+
+function compareNonYakumanCandidates(left,right,winTile){
+    if(!left)return right;
+    if(!right)return left;
+    const buildSummary=(candidate)=>{
+        const doraCount=calculateDoraCount(winTile);
+        const han=candidate.yakuList.reduce((sum,item)=>sum+item.han,0)+doraCount;
+        const fu=calculateFu(winTile,{yakuList:candidate.yakuList,isYakuman:false,yakumanCount:0,handForm:candidate.handForm});
+        const points=calculatePoints(han,fu,false,0).total;
+        return{han,fu,points};
+    };
+    const leftSummary=buildSummary(left);
+    const rightSummary=buildSummary(right);
+    if(rightSummary.points!==leftSummary.points)return rightSummary.points>leftSummary.points?right:left;
+    if(rightSummary.han!==leftSummary.han)return rightSummary.han>leftSummary.han?right:left;
+    if(rightSummary.fu!==leftSummary.fu)return rightSummary.fu>leftSummary.fu?right:left;
+    return right;
+}
+
 function canDecomposeTo4Shuntsu(tiles){
     if(tiles.length===0)return true;
     if(tiles.length%3!==0)return false;
@@ -777,6 +868,7 @@ function calculateYaku(hand,winTile){
     let yakumanCount=0;
     const menzen=isMenzen();
     const isChiiToi=isSevenPairs(fullHand);
+    const hasStandardForm=getHandDecompositions(fullHand).length>0;
     const suits=['m','p','s'];
     
     for(let suit of suits){
@@ -846,7 +938,7 @@ function calculateYaku(hand,winTile){
     }
     const greenTiles=['2s','3s','4s','6s','8s','rich'];
     if(fullHand.every(t=>greenTiles.includes(t.id))){
-        yakuList.push({name:'???',han:13,isYakuman:true});
+        yakuList.push({name:'绿一色',han:13,isYakuman:true});
         isYakuman=true;yakumanCount+=1;
     }
     if(state.tenhou&&menzen&&state.winType==='tsumo'&&isDealer()&&state.melds.length===0&&state.ankan.length===0){
@@ -859,63 +951,20 @@ function calculateYaku(hand,winTile){
     }
 
     if(!isYakuman){
-        if(state.isDoubleRiichi&&menzen){
-            yakuList.push({name:'双立直',han:2});
-            if(state.ippatsu)yakuList.push({name:'一发',han:1});
-        }else if(state.isRiichi&&menzen){
-            yakuList.push({name:'立直',han:1});
-            if(state.ippatsu)yakuList.push({name:'一发',han:1});
+        const commonYaku=buildCommonNonYakumanYaku(fullHand,menzen);
+        let bestCandidate=null;
+        if(hasStandardForm){
+            bestCandidate=compareNonYakumanCandidates(bestCandidate,{yakuList:[...commonYaku,...buildStandardOnlyYaku(fullHand,normalizedWinTile,menzen,kanCount)],handForm:'standard'},normalizedWinTile);
         }
-        if(state.winType==='tsumo'&&menzen)yakuList.push({name:'门清自摸和',han:1});
-        if(state.haitei)yakuList.push({name:state.winType==='tsumo'?'海底摸月':'河底捞鱼',han:1});
-        if(state.houtei)yakuList.push({name:'岭上开花',han:1});
-        if(state.chankan)yakuList.push({name:'抢杠',han:1});
-        if(!fullHand.some(t=>t.isYaochu))yakuList.push({name:'断幺九',han:1});
-
-        const honorCounts={};
-        fullHand.forEach(t=>{if(t.type==='honor')honorCounts[t.honor]=(honorCounts[t.honor]||0)+1;});
-        if(!isChiiToi){
-            if(honorCounts[state.fieldWind]>=3)yakuList.push({name:`场风 (${getTileById(state.fieldWind).name})`,han:1});
-            if(honorCounts[state.seatWind]>=3)yakuList.push({name:`自风 (${getTileById(state.seatWind).name})`,han:1});
-            if(honorCounts['haku']>=3)yakuList.push({name:'役牌 (白)',han:1});
-            if(honorCounts['hatsu']>=3)yakuList.push({name:'役牌 (发)',han:1});
-            if(honorCounts['chun']>=3)yakuList.push({name:'役牌 (中)',han:1});
+        if(isChiiToi){
+            bestCandidate=compareNonYakumanCandidates(bestCandidate,{yakuList:[...commonYaku,...buildChiitoiOnlyYaku()],handForm:'chiitoi'},normalizedWinTile);
         }
-        if(!isChiiToi&&menzen){
-            if(checkPinfu(fullHand,normalizedWinTile)){yakuList.push({name:'平和',han:1});}
-        }
-        if(!isChiiToi){
-            const iipeikoCount=countIipeiko(fullHand);
-            if(iipeikoCount>=2&&menzen){yakuList.push({name:'二杯口',han:3});}
-            else if(iipeikoCount>=1&&menzen){yakuList.push({name:'一杯口',han:1});}
-            const sanshoku=countSanshokuDoshun(fullHand);
-            if(sanshoku>0){yakuList.push({name:'三色同顺',han:menzen?2:1});}
-            const ittsuCount=countIttsu(fullHand);
-            if(ittsuCount>0){yakuList.push({name:'一气通贯',han:menzen?2:1});}
-            const chanta=checkChanta(fullHand);
-            if(chanta===2){yakuList.push({name:'纯全带幺九',han:menzen?3:2});}
-            else if(chanta===1){yakuList.push({name:'混全带幺九',han:menzen?2:1});}
-            const isHonitsu=checkHonitsu(fullHand);
-            const isChinitsu=checkChinitsu(fullHand);
-            if(isChinitsu){yakuList.push({name:'清一色',han:menzen?6:5});}
-            else if(isHonitsu){yakuList.push({name:'混一色',han:menzen?3:2});}
-            const toitoi=checkToitoi(fullHand);
-            if(toitoi){yakuList.push({name:'对对和',han:2});}
-            const sananko=checkSananko(fullHand,state.ankan,normalizedWinTile);
-            if(sananko){yakuList.push({name:'三暗刻',han:2});}
-            const sanshokuDoko=checkSanshokuDoko(fullHand);
-            if(sanshokuDoko){yakuList.push({name:'三色同刻',han:2});}
-            if(kanCount>=3){yakuList.push({name:'三杠子',han:2});}
-            const shosangen=checkShosangen(fullHand);
-            if(shosangen){yakuList.push({name:'小三元',han:2});}
-            if(fullHand.every(t=>t.isYaochu)){yakuList.push({name:'混老头',han:2});}
+        if(bestCandidate){
+            yakuList.push(...bestCandidate.yakuList);
+            return{yakuList,isYakuman,yakumanCount,handForm:bestCandidate.handForm};
         }
     }
-    if(isChiiToi){
-        yakuList.push({name:'七对子',han:2});
-        if(fullHand.every(t=>t.isYaochu)){yakuList.push({name:'混老头',han:2});}
-    }
-    return{yakuList,isYakuman,yakumanCount};
+    return{yakuList,isYakuman,yakumanCount,handForm:isChiiToi?'chiitoi':'standard'};
 }
 
 function countIipeiko(tiles){
@@ -1028,55 +1077,23 @@ function checkToitoi(tiles){
 }
 
 function checkSananko(fullHand,ankan,winTile){
-    let baseAnko=ankan.length;
     const handCounts=countTilesById(state.hand);
-    const fullCounts=countTilesById(fullHand);
-    const ids=Object.keys(fullCounts).sort();
-    for(let i=0;i<ids.length;i++){
-        const pairId=ids[i];
-        if(fullCounts[pairId]<2)continue;
-        const tempCounts={...fullCounts};
-        tempCounts[pairId]-=2;
-        if(tempCounts[pairId]===0)delete tempCounts[pairId];
-        const maxAnko=decomposeForMaxSanAnko(tempCounts,handCounts,0,baseAnko,winTile);
-        if(maxAnko>=3)return true;
+    const normalizedWinId=normalizeTileId(winTile);
+    for(const {mentsuList} of getHandDecompositions(fullHand)){
+        let concealedCount=0;
+        for(const mentsu of mentsuList){
+            if(mentsu.type!=='kotsu')continue;
+            if(isOpenMentsu(mentsu))continue;
+            if(isDeclaredAnkanMentsu(mentsu)){
+                concealedCount++;
+                continue;
+            }
+            const isRonCompletedKotsu=state.winType==='ron'&&mentsu.id===normalizedWinId&&(handCounts[mentsu.id]||0)===2;
+            if(!isRonCompletedKotsu)concealedCount++;
+        }
+        if(concealedCount>=3)return true;
     }
     return false;
-}
-
-function decomposeForMaxSanAnko(counts,handCounts,currentAnko,baseAnko,winTile){
-    if(Object.keys(counts).length===0){return baseAnko+currentAnko;}
-    const firstId=Object.keys(counts).sort()[0];
-    const tile=getTileById(firstId);
-    if(!tile)return 0;
-    const count=counts[firstId];
-    let maxAnko=0;
-    if(count>=3){
-        let isAnko=true;
-        if(state.winType==='ron'&&tile.id===winTile.id){
-            const handCount=handCounts[tile.id]||0;
-            if(handCount<3){isAnko=false;}
-        }
-        const newCounts={...counts};
-        newCounts[firstId]-=3;
-        if(newCounts[firstId]===0)delete newCounts[firstId];
-        const result=decomposeForMaxSanAnko(newCounts,handCounts,currentAnko+(isAnko?1:0),baseAnko,winTile);
-        maxAnko=Math.max(maxAnko,result);
-    }
-    if(tile.type!=='honor'&&tile.num<=7){
-        const id2=`${tile.num+1}${tile.suit}`;
-        const id3=`${tile.num+2}${tile.suit}`;
-        if(counts[id2]&&counts[id3]){
-            const newCounts={...counts};
-            newCounts[firstId]--;newCounts[id2]--;newCounts[id3]--;
-            if(newCounts[firstId]===0)delete newCounts[firstId];
-            if(newCounts[id2]===0)delete newCounts[id2];
-            if(newCounts[id3]===0)delete newCounts[id3];
-            const result=decomposeForMaxSanAnko(newCounts,handCounts,currentAnko,baseAnko,winTile);
-            maxAnko=Math.max(maxAnko,result);
-        }
-    }
-    return maxAnko;
 }
 
 function checkSanshokuDoko(tiles){
@@ -1134,14 +1151,12 @@ function calculateDoraCount(winTile){
         }
     });
     fullHandForDora.forEach(t=>{
-        if(t.red)return;
-        if(doraTiles.some(d=>d.id===t.id)){count++;}
+        if(doraTiles.some(d=>d.id===normalizeTileId(t))){count++;}
     });
     if(winTile.red){
         if(!redTilesInHand[winTile.suit]){count++;}
-    }else{
-        if(doraTiles.some(d=>d.id===winTile.id)){count++;}
     }
+    if(doraTiles.some(d=>d.id===normalizeTileId(winTile))){count++;}
     return count;
 }
 
@@ -1150,7 +1165,8 @@ function calculateDoraCount(winTile){
 function calculateFu(winTile, yakuResult) {
     if (yakuResult.isYakuman) return 0;
     const fullHand = [...getTilesForTenpai(), normalizeTile(winTile)];
-    if (isSevenPairs(fullHand)) return 25;
+    if (yakuResult.handForm === 'chiitoi') return 25;
+    if (!yakuResult.handForm && isSevenPairs(fullHand)) return 25;
     
     const isPinfu = yakuResult.yakuList.some(y => y.name === '平和');
     if (isPinfu) { return state.winType === 'tsumo' ? 20 : 30; }
@@ -1170,20 +1186,24 @@ function findMaxFuDecomposition(tiles, handCounts, winTile) {
 
     const counts = {};
     normalizedTiles.forEach(t => counts[t.id] = (counts[t.id] || 0) + 1);
+    const fixedMentsu = getFixedMentsuFromState();
+    const remainingCounts = removeFixedMentsuFromCounts(counts, fixedMentsu);
+    const targetMentsuCount = 4 - fixedMentsu.length;
+    if (!remainingCounts || targetMentsuCount < 0) return 20;
     
     let maxFu = 0;
-    const ids = Object.keys(counts);
+    const ids = Object.keys(remainingCounts);
     
     for (const pairId of ids) {
-        if (counts[pairId] >= 2) {
-            const tempCounts = {...counts};
+        if (remainingCounts[pairId] >= 2) {
+            const tempCounts = {...remainingCounts};
             tempCounts[pairId] -= 2;
             if (tempCounts[pairId] === 0) delete tempCounts[pairId];
             
-            const decomps = decomposeToMentsu(tempCounts, []);
+            const decomps = decomposeToMentsu(tempCounts, [], targetMentsuCount);
             
             for (const decomp of decomps) {
-                const fu = calculateFuFromDecomposition(pairId, decomp, handCounts, winTile);
+                const fu = calculateFuFromDecomposition(pairId, [...fixedMentsu, ...decomp], handCounts, winTile);
                 if (fu > maxFu) maxFu = fu;
             }
         }
@@ -1195,9 +1215,9 @@ function findMaxFuDecomposition(tiles, handCounts, winTile) {
     return maxFu < 20 ? 20 : maxFu;
 }
 
-function decomposeToMentsu(counts, currentMentsu) {
-    if (Object.keys(counts).length === 0) { return [currentMentsu]; }
-    if (currentMentsu.length >= 4) { return []; }
+function decomposeToMentsu(counts, currentMentsu, targetMentsuCount = 4) {
+    if (Object.keys(counts).length === 0) { return currentMentsu.length === targetMentsuCount ? [currentMentsu] : []; }
+    if (currentMentsu.length >= targetMentsuCount) { return []; }
     
     const firstId = Object.keys(counts).sort()[0];
     const tile = getTileById(firstId);
@@ -1215,7 +1235,7 @@ function decomposeToMentsu(counts, currentMentsu) {
             if (newCounts[firstId] === 0) delete newCounts[firstId];
             if (newCounts[id2] === 0) delete newCounts[id2];
             if (newCounts[id3] === 0) delete newCounts[id3];
-            const subResults = decomposeToMentsu(newCounts, [...currentMentsu, {type:'shuntsu', ids:[firstId, id2, id3]}]);
+            const subResults = decomposeToMentsu(newCounts, [...currentMentsu, {type:'shuntsu', ids:[firstId, id2, id3]}], targetMentsuCount);
             results = results.concat(subResults);
         }
     }
@@ -1224,7 +1244,7 @@ function decomposeToMentsu(counts, currentMentsu) {
         const newCountsKotsu = {...counts};
         newCountsKotsu[firstId] -= 3;
         if (newCountsKotsu[firstId] === 0) delete newCountsKotsu[firstId];
-        const subResultsKotsu = decomposeToMentsu(newCountsKotsu, [...currentMentsu, {type:'kotsu', id:firstId, count:3}]);
+        const subResultsKotsu = decomposeToMentsu(newCountsKotsu, [...currentMentsu, {type:'kotsu', id:firstId, count:3}], targetMentsuCount);
         results = results.concat(subResultsKotsu);
     }
     
@@ -1261,7 +1281,7 @@ function calculateFuFromDecomposition(pairId, mentsuList, handCounts, winTile) {
             else if (isMelded || isRonKotsu) { 
                 const meld = state.melds.find(m => m.every(t => (t.red && t.num === 5 ? `5${t.suit}` : t.id) === mentsu.id));
                 if (meld && meld.length === 4) {
-                    fu += tile.isYaochu ? 32 : 16;
+                    fu += tile.isYaochu ? 16 : 8;
                 } else {
                     fu += tile.isYaochu ? 4 : 2;
                 }
